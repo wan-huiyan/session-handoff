@@ -34,7 +34,7 @@ Every handoff produces:
 
 | Artifact | Description |
 |---|---|
-| **Handoff doc** | What was completed, what remains, key decisions, files modified, branch status |
+| **Handoff doc** | What was completed, what remains, blockers/open issues, key decisions, files modified, branch status |
 | **Lessons update** | Non-obvious debugging patterns and user corrections captured |
 | **Memory files** | New feedback/reference files created or updated |
 | **ADRs** | Architectural Decision Records for significant choices |
@@ -96,7 +96,7 @@ Phase 5 triggers automatically when 3+ handoff docs exist in `docs/handoffs/`, o
 
 The skill guarantees:
 - [ ] All commits since session start are accounted for
-- [ ] Handoff doc has all 5 sections (completed, remaining, decisions, files, branch)
+- [ ] Handoff doc has all 6 sections (completed, remaining, blockers, decisions, files, branch)
 - [ ] Lessons scanned for non-obvious debugging patterns
 - [ ] MEMORY.md index is consistent with memory files on disk
 - [ ] No uncommitted changes left behind

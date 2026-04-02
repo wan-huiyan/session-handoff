@@ -54,9 +54,10 @@ source of truth when multiple handoffs accumulate.
 2. **Write handoff doc** -> `docs/handoffs/session_N_handoff.md`
    - Section 1: What was completed (with specifics — PRs, test counts, key metrics)
    - Section 2: What remains (prioritised, with file pointers)
-   - Section 3: Key decisions (table: Decision | Resolution | Rationale)
-   - Section 4: Files modified (table)
-   - Section 5: Branch status
+   - Section 3: Blockers & open issues (what's stuck, what's waiting on external input, what failed)
+   - Section 4: Key decisions (table: Decision | Resolution | Rationale)
+   - Section 5: Files modified (table)
+   - Section 6: Branch status
 
 3. **Scan for missed lessons** — review the session for:
    - Debugging that required non-obvious investigation
@@ -231,6 +232,10 @@ Handoff doc sections:
 ## Remaining (prioritised)
 1. **Rate limiting** — needs Redis config (ADR-0008)
 2. **Session expiry UI** — stale mock data in fixtures
+
+## Blockers & Open Issues
+- **Redis not provisioned** — rate limiting blocked until infra team sets up Redis (asked in #ops-requests)
+- **CI flake on auth tests** — intermittent timeout in `test_token_refresh`, not related to our changes
 
 ## Key Decisions
 | Decision | Resolution | Rationale |
