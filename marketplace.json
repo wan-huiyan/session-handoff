@@ -1,0 +1,10 @@
+{
+  "name": "wan-huiyan-session-handoff",
+  "owner": { "name": "Hui-Yan Wan" },
+  "plugins": [{
+    "name": "session-handoff",
+    "source": ".",
+    "description": "End-of-session handoff that captures all knowledge, updates documentation, and prepares next-session prompts",
+    "version": "1.0.0"
+  }]
+}
