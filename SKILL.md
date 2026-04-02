@@ -1,7 +1,11 @@
 ---
 name: session-handoff
-description: End-of-session handoff that captures all knowledge, updates all documentation, and prepares prompts for the next session. Use when wrapping up a work session.
-version: 1.0.0
+description: >
+  End-of-session handoff that captures all knowledge, updates documentation, and
+  prepares prompts for the next session. Includes cross-session consolidation when
+  multiple handoffs accumulate. Use when wrapping up a work session or when you need
+  a single source of truth after parallel sessions.
+version: 1.1.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -9,16 +13,34 @@ triggers:
   - "create handoff"
   - "hand over"
   - "write handoff"
+  - "consolidate"
+  - "consolidate handoffs"
+  - "what's the current state"
+  - "start here document"
 ---
 
 # Session Handoff
 
-Comprehensive end-of-session knowledge capture. Ensures nothing is lost between sessions.
+Comprehensive end-of-session knowledge capture with built-in cross-session
+consolidation. Ensures nothing is lost between sessions and produces a single
+source of truth when multiple handoffs accumulate.
 
 ## When to use
+
 - End of any non-trivial work session (3+ tasks completed)
 - User says "wrap up", "hand over", "create handoff", or similar
 - Before context window approaches limits
+- After parallel sessions complete and you need one "start here" document
+- User says "consolidate", "what's the current state"
+
+## Edge cases
+
+- **No git repo:** Skip git log and branch status steps. Note this in the handoff doc.
+- **No `memory/` directory:** Create it. Initialize `lessons.md` and `sessions_archive.md`.
+- **No `docs/` directory:** Create `docs/handoffs/` and `docs/plans/`.
+- **First session (no prior handoffs):** Skip consolidation. Write session_1_handoff.md.
+- **Single handoff exists:** Skip consolidation — it only adds value with 3+ handoffs.
+- **Handoff docs use different naming:** Scan for `session*handoff*` and `*_handoff.md` patterns.
 
 ## The Checklist (execute in order)
 
@@ -97,6 +119,58 @@ Comprehensive end-of-session knowledge capture. Ensures nothing is lost between 
 
 15. **Final confirmation** to user: list all artifacts produced
 
+### Phase 5: Consolidate (when 3+ handoffs exist)
+
+This phase runs automatically when 3+ handoff docs are detected, or when the user
+explicitly asks to consolidate. It merges overlapping information from parallel
+sessions into a single authoritative plan.
+
+16. **Gather all sources** — read in parallel:
+    - All handoff docs (`docs/handoffs/session*_handoff.md`)
+    - PR status (`gh pr list --state all --limit 20 --json number,title,state,mergedAt`)
+    - Memory files (MEMORY.md, sessions_archive, lessons)
+    - Any status/findings docs
+
+17. **Track decision supersession** — build a timeline across sessions:
+    - Mark each decision as **OPEN**, **RESOLVED**, or **SUPERSEDED**
+    - For superseded decisions, note which later session reversed it and why
+    - Use strikethrough + resolution notes for resolved items:
+      ```
+      ~~Token storage in localStorage?~~ RESOLVED (Session 5). httpOnly cookies for XSS protection.
+      ```
+
+18. **Map experiments and identify gaps** — cross-check every "What Needs To Happen Next"
+    section from every handoff against what actually happened:
+    - Promised work that was never started
+    - Planned validations that were skipped
+    - Integration items that were deferred and forgotten
+    - Branch cleanup that accumulated across sessions
+
+19. **Write consolidated plan** -> `docs/plans/future_sessions_plan.md`
+    Structure:
+    ```markdown
+    # Consolidated Plan for Future Sessions
+
+    ## Current State Summary
+    ### Merged to main (PR table with outcomes)
+    ### Open work (PRs, branches)
+    ### Key findings (experiments, discoveries)
+
+    ## Priority Actions (P1-PN)
+    (Each with: what, why, dependencies, experiment plan if applicable)
+
+    ## Branch Cleanup (table with action per branch)
+
+    ## Decision Queue
+    ### Open decisions (numbered, with blockers)
+    ### Resolved decisions (strikethrough, with rationale)
+    ```
+
+20. **Verify all claims are current** — for each claim in the consolidated plan:
+    - Is the PR status current? (`gh pr view N --json state`)
+    - Are branch references still valid? (`git branch -a`)
+    - Have any deferred items been completed without updating the plan?
+
 ## Output format
 
 Present a summary table at the end:
@@ -110,44 +184,26 @@ Present a summary table at the end:
 | Future plan | Updated |
 | Sessions archive | Updated |
 | Next session prompt | `docs/handoffs/session_N+1_prompt.md` |
+| Consolidated plan | (if Phase 5 ran) `docs/plans/future_sessions_plan.md` |
 | Git status | All committed and pushed |
 
-## Integration with session-handoff-consolidator
+## Anti-patterns
 
-After 3+ handoff docs accumulate, use `/session-handoff-consolidator` to:
-- Merge overlapping tasks across handoffs
-- Detect superseded decisions (later session overrides earlier)
-- Produce a single "start here" document
-- Reconcile PR statuses and branch cleanup
-
-## Auto-trigger hook (optional)
-
-Add to `.claude/settings.json` to get a reminder when context is running low:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [{
-      "matcher": ".*",
-      "hooks": [{
-        "type": "command",
-        "command": "python3 -c \"import sys; sys.exit(0)\"",
-        "timeout": 1000
-      }]
-    }]
-  }
-}
-```
-
-Note: Claude Code doesn't expose context-window size to hooks yet. For now, manually trigger `/session-handoff` when you notice responses getting shorter or the system starts compressing earlier messages.
+- **Don't concatenate handoff docs** — the value of consolidation is resolving conflicts and surfacing gaps, not appending
+- **Don't assume handoff docs are current** — check git/PR status for every claim
+- **Don't keep resolved decisions as open** — clutters the decision queue
+- **Don't hardcode test counts or line counts** — they go stale immediately; use "as of PR #N" instead
+- **Don't skip the lessons scan** — debugging patterns are the most valuable long-term knowledge
+- **Don't write "see above" in next-session prompts** — they must be paste-ready with full context
 
 ## Tips
+
 - Start with git log to jog memory about what happened
-- Don't skip the "missed lessons" scan — debugging patterns are the most valuable lessons
 - Check reference files and architectural decisions for staleness
 - If the session had a critical bug, add it to project CLAUDE.md (not just lessons)
 - The next session prompt should be paste-ready — include all context needed to start immediately
-- After consolidating 5+ handoffs, archive older ones to reduce MEMORY.md bloat
+- After consolidation, archive older handoff docs to reduce clutter
+- The consolidated plan is a living document — update it when new sessions complete
 
 ## Example output
 
@@ -158,6 +214,9 @@ docs/handoffs/
   session_12_handoff.md      # What happened, what remains
   session_13_prompt.md       # Paste-ready start prompt
   refactor_cleanup.md        # (if parallel streams exist)
+
+docs/plans/
+  future_sessions_plan.md    # (if Phase 5 ran) single source of truth
 ```
 
 Handoff doc sections:
@@ -182,23 +241,34 @@ Handoff doc sections:
 - `feature/auth-flow` — 4 commits ahead of main, ready for PR
 ```
 
+Decision supersession example (from consolidated plan):
+
+```markdown
+## Decision Queue
+
+1. **Should we add WebSocket support?** — OPEN, blocked on load testing results
+2. ~~**Defer rate limiting?**~~ RESOLVED (Session 8). Implemented in PR #22 after abuse incident.
+3. ~~**localStorage for tokens?**~~ SUPERSEDED (Session 5 reversed Session 3). httpOnly cookies chosen for XSS protection.
+```
+
 ## Composability
 
 ### Input / Output Contract
 
 **Input:** Invoked at end of a work session. Reads git log, memory files, and project structure.
+For consolidation: reads all existing handoff docs and validates against git/GitHub state.
 
 **Output:** Handoff doc, updated memory/lessons, next session prompt, sessions archive entry,
-and ADRs. All files are committed and pushed.
+ADRs, and optionally a consolidated plan. All files are committed and pushed.
 
 ### Dependencies
 
 - Requires `git` for commit history and status
-- Works with any project structure that uses `docs/` and `memory/` directories
-- Optional: `session-handoff-consolidator` for merging accumulated handoffs
+- Requires `gh` CLI for PR status checks (gracefully degrades without it)
+- Works with any project structure that uses `docs/` and `memory/` directories (creates them if missing)
 
 ### Scope Boundaries
 
-- **Use this skill when** wrapping up a work session
+- **Use this skill when** wrapping up a work session or consolidating after parallel sessions
 - **Do NOT use for** mid-session progress updates (just use git commits)
-- **Hand off to** `session-handoff-consolidator` when 3+ handoffs accumulate
+- **Hand off to** `memory-hygiene` for deep memory cleanup beyond what Phase 4 covers
