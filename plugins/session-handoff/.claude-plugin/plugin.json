@@ -1,9 +1,17 @@
 {
   "name": "session-handoff",
   "description": "End-of-session handoff with built-in cross-session consolidation. Captures knowledge, updates documentation, and prepares next-session prompts.",
-  "version": "1.1.0",
-  "author": { "name": "Hui-Yan Wan" },
+  "version": "1.2.0",
+  "author": {
+    "name": "Hui-Yan Wan"
+  },
   "repository": "https://github.com/wan-huiyan/session-handoff",
   "license": "MIT",
-  "keywords": ["claude-code", "session-management", "handoff", "knowledge-capture", "productivity"]
+  "keywords": [
+    "claude-code",
+    "session-management",
+    "handoff",
+    "knowledge-capture",
+    "productivity"
+  ]
 }
