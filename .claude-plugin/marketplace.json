@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "wan-huiyan-session-handoff",
+  "description": "Single-plugin marketplace for session-handoff — End-of-session handoff with built-in cross-session consolidation. Captures knowledge, updates documentation, and prepares next-session prompts.",
+  "owner": {
+    "name": "wan-huiyan"
+  },
+  "plugins": [
+    {
+      "name": "session-handoff",
+      "source": "./plugins/session-handoff",
+      "description": "End-of-session handoff with built-in cross-session consolidation. Captures knowledge, updates documentation, and prepares next-session prompts.",
+      "version": "1.2.0"
+    }
+  ]
+}
