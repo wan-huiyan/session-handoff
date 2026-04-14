@@ -5,7 +5,7 @@ description: >
   prepares prompts for the next session. Includes cross-session consolidation when
   multiple handoffs accumulate. Use when wrapping up a work session or when you need
   a single source of truth after parallel sessions.
-version: 1.1.0
+version: 1.3.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -100,9 +100,29 @@ source of truth when multiple handoffs accumulate.
     - Priority tasks with specific instructions
     - Research context
 
-11. **Write any additional prompts** for parallel work streams (e.g., cleanup, different feature)
+11. **Write parallel session prompts** when upcoming work can be split into independent streams
 
-### Phase 4: Verify (nothing lost)
+    **When to split:** If the next session's scope contains 2+ tasks with **zero file overlap**, split
+    them into separate prompts that can run simultaneously on separate branches.
+
+    **File overlap check:** For each task, list the files it will modify. If the sets are disjoint
+    (e.g., `_feature_common/` + `dataform/` vs `cr_client_dashboard/` only), they're safe to parallelize.
+
+    **Naming convention:** `session_N+1_prompt.md` (primary) + `session_N+1b_[topic]_prompt.md` (parallel).
+    Use a short descriptive suffix like `_insight_card_redesign` or `_cleanup`.
+
+    **Each parallel prompt must include:**
+    - Its own branch name (e.g., `feat/s71-distance-v6` vs `feat/s71b-insight-redesign`)
+    - A "Parallel session" section naming the other stream + confirming no file overlap
+    - Any shared prerequisites (e.g., "merge PR #N first, then branch from main")
+    - Its own guardrails (test count, deploy restrictions)
+
+    **Skip splitting when:**
+    - Tasks share files or have ordering dependencies
+    - One task is trivially small (< 15 min) — just sequence it
+    - The user hasn't expressed interest in parallel execution
+
+### Phase 4: Commit, PR, and verify (nothing lost)
 
 12. **Check for uncommitted changes:**
     ```bash
@@ -111,14 +131,32 @@ source of truth when multiple handoffs accumulate.
     git log --oneline origin/BRANCH..HEAD
     ```
 
-13. **Commit and push** any stragglers
+13. **Commit all session work** — stage and commit in logical groups:
+    - **Code changes first:** feature code, bug fixes, tests (one commit with descriptive message)
+    - **Docs second:** handoff doc, next-session prompt, plan updates, lessons (separate commit)
+    - If the session already has multiple commits on a feature branch, add docs as a new commit on the same branch.
+    - If uncommitted work is on `main`, create a feature branch first: `git checkout -b feat/sN-description`
 
-14. **Quick memory hygiene check:**
+14. **Push and create PR:**
+    ```bash
+    git push -u origin <branch-name>
+    gh pr create --title "feat(sN): <summary>" --body "<PR body with summary + test plan>"
+    ```
+    - PR body should include: summary bullets, test plan checklist, line/file counts
+    - If the session had no code changes (docs-only), use `docs(sN):` prefix instead of `feat(sN):`
+
+15. **Merge PR** (if appropriate):
+    - If the user asks to merge: `gh pr merge <number> --squash`
+    - If the user doesn't ask: note in the summary table that the PR is open and ready for review
+    - After merge: `git checkout main && git pull` to sync local main
+    - Update the next-session prompt to note the PR is merged (remove "merge PR #N" from prerequisites)
+
+16. **Quick memory hygiene check:**
     - Any new memory files missing from MEMORY.md?
     - Lesson count accurate?
     - Any ADR number duplicates?
 
-15. **Final confirmation** to user: list all artifacts produced
+17. **Final confirmation** to user: list all artifacts produced
 
 ### Phase 5: Consolidate (when 3+ handoffs exist)
 
@@ -186,6 +224,7 @@ Present a summary table at the end:
 | Sessions archive | Updated |
 | Next session prompt | `docs/handoffs/session_N+1_prompt.md` |
 | Consolidated plan | (if Phase 5 ran) `docs/plans/future_sessions_plan.md` |
+| PR | `#N` — merged / open for review |
 | Git status | All committed and pushed |
 
 ## Anti-patterns
@@ -213,11 +252,22 @@ A completed handoff produces this structure:
 ```
 docs/handoffs/
   session_12_handoff.md      # What happened, what remains
-  session_13_prompt.md       # Paste-ready start prompt
-  refactor_cleanup.md        # (if parallel streams exist)
+  session_13_prompt.md       # Primary next-session prompt
+  session_13b_auth_cleanup_prompt.md  # Parallel stream (zero file overlap)
 
 docs/plans/
   future_sessions_plan.md    # (if Phase 5 ran) single source of truth
+```
+
+Parallel prompt example (`session_13b_auth_cleanup_prompt.md`):
+```markdown
+# Session 13b — Auth Token Cleanup (Parallel)
+**Branch:** `feat/s13b-auth-cleanup` (from main after PR #15 merge)
+
+## Parallel session
+S13 (rate limiting) runs on `feat/s13-rate-limiting`.
+**No file overlap** — this session touches `auth/tokens/` only;
+S13 touches `middleware/` + `config/`.
 ```
 
 Handoff doc sections:

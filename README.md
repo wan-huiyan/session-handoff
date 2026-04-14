@@ -40,6 +40,7 @@ Every handoff produces:
 | **ADRs** | Architectural Decision Records for significant choices |
 | **Future plan** | Updated with completed items and newly discovered work |
 | **Sessions archive** | Running log of all sessions with dates and outcomes |
+| **PR (committed + pushed)** | All session work committed to a feature branch, pushed, and a PR created (optionally merged) |
 | **Next session prompt** | Paste-ready prompt with full context to resume immediately |
 | **Consolidated plan** | *(when 3+ handoffs exist)* Single source of truth with decision supersession, gap analysis, and PR reconciliation |
 
@@ -51,6 +52,7 @@ Every handoff produces:
 | Lessons learned | Lost when context window resets | Written to persistent memory files |
 | Next session start | Re-read code, reconstruct context | Paste the prompt, start immediately |
 | Parallel streams | Forgotten | Separate prompts for each work stream |
+| Git workflow | Uncommitted changes left behind | Committed, pushed, PR created and optionally merged |
 | Memory hygiene | Skipped | Automatic check for orphaned files |
 | After 5 parallel sessions | Cross-reference 5 handoff docs manually | One consolidated plan with superseded decisions resolved |
 
@@ -61,8 +63,8 @@ Every handoff produces:
 | **1. Capture** | 1-4 | Scan git log, write handoff doc, capture lessons, update memory files |
 | **2. Update** | 5-9 | Propagate to future plan, roadmap, sessions archive, MEMORY.md, ADRs |
 | **3. Prepare** | 10-11 | Write next-session prompt(s) for all work streams |
-| **4. Verify** | 12-15 | Check for uncommitted changes, memory hygiene, final confirmation |
-| **5. Consolidate** | 16-20 | *(conditional)* Merge handoffs into single plan, track decision supersession, identify gaps |
+| **4. Commit, PR, Verify** | 12-17 | Commit code + docs, push branch, create PR, optionally merge, memory hygiene check |
+| **5. Consolidate** | 18-22 | *(conditional)* Merge handoffs into single plan, track decision supersession, identify gaps |
 
 ### When does consolidation run?
 
@@ -99,7 +101,7 @@ The skill guarantees:
 - [ ] Handoff doc has all 6 sections (completed, remaining, blockers, decisions, files, branch)
 - [ ] Lessons scanned for non-obvious debugging patterns
 - [ ] MEMORY.md index is consistent with memory files on disk
-- [ ] No uncommitted changes left behind
+- [ ] All changes committed, pushed, and PR created
 - [ ] Next-session prompt is paste-ready (no "see above" references)
 - [ ] ADR numbers checked for duplicates
 - [ ] (If consolidating) Every PR/branch claim verified against current state
@@ -113,6 +115,8 @@ The skill guarantees:
 
 ## Version History
 
+- **1.3.0** — Phase 4 now includes explicit commit, push, PR creation, and optional merge steps. Previously just said "commit and push any stragglers" which was too vague.
+- **1.2.0** — Plugin packaging fix: restructured to canonical `plugins/<name>/` layout.
 - **1.1.0** — Merged session-handoff-consolidator as Phase 5 (conditional consolidation). Added edge case handling, anti-patterns section, improved triggers.
 - **1.0.0** — Initial release. 4-phase checklist with 15 steps.
 
