@@ -1,5 +1,7 @@
 # session-handoff
 
+> 📦 **Also available in the [context-baton](https://github.com/wan-huiyan/context-baton) marketplace**, paired with [successor-handoff](https://github.com/wan-huiyan/context-baton/tree/master/plugins/successor-handoff) for mid-run agent-to-agent handoffs during long autonomous work. This standalone repo stays at 1.3.0 and tracks the same SKILL.md as the bundle.
+
 End-of-session handoff that captures all knowledge, updates documentation, and prepares paste-ready prompts for the next session. Includes built-in cross-session consolidation when multiple handoffs accumulate.
 
 ## Quick Start
