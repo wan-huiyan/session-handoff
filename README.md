@@ -1,8 +1,10 @@
 # session-handoff
 
-> 📦 **Also available in the [context-baton](https://github.com/wan-huiyan/context-baton) marketplace**, paired with [successor-handoff](https://github.com/wan-huiyan/context-baton/tree/master/plugins/successor-handoff) for mid-run agent-to-agent handoffs during long autonomous work. This standalone repo stays at 1.3.0 and tracks the same SKILL.md as the bundle.
+> 📦 **Also available in the [context-baton](https://github.com/wan-huiyan/context-baton) marketplace**, paired with [successor-handoff](https://github.com/wan-huiyan/context-baton/tree/master/plugins/successor-handoff) for mid-run agent-to-agent handoffs during long autonomous work. This standalone repo tracks the same SKILL.md as the bundle.
 
-End-of-session handoff that captures all knowledge, updates documentation, and prepares paste-ready prompts for the next session. Includes built-in cross-session consolidation when multiple handoffs accumulate.
+End-of-session handoff that captures all knowledge, **dispatches session output across the canonical 7-bucket `docs/` taxonomy** (aligned with [memory-hygiene v3.1](https://github.com/wan-huiyan/memory-hygiene)), and prepares paste-ready prompts for the next session. Includes built-in cross-session consolidation when multiple handoffs accumulate, and a mandatory **doc-freshness reverse-lint** verify step that catches stale normative guidance in project docs after this session's lessons.
+
+**v1.4** is the first release aligned with the 7-bucket taxonomy — session artifacts are routed to `decisions/`, `runbooks/`, `analysis/`, `references/`, `reviews/`, `handoffs/`, `deliverables/` rather than dumped into a single handoff doc.
 
 ## Quick Start
 
@@ -43,18 +45,29 @@ npx skills add wan-huiyan/session-handoff --global
 
 ## What You Get
 
-Every handoff produces:
+Every handoff dispatches session output across the 7 canonical buckets (rich sessions touch 3-5 of them):
+
+| Bucket | Populated when the session... |
+|---|---|
+| **`docs/decisions/`** | Made an architectural or methodological choice (ADRs) |
+| **`docs/runbooks/`** | Created/updated an operational procedure (retrain, rerun, QA) |
+| **`docs/analysis/`** | Produced findings, investigations, diagnostics |
+| **`docs/references/`** | Updated schemas, data dictionaries, project conventions |
+| **`docs/reviews/`** | Produced review-panel or audit output |
+| **`docs/handoffs/`** | **Always** — the session handoff doc + next-session prompt (+ parallel prompts) |
+| **`docs/deliverables/`** | Produced an external-facing artifact (client draft, published output, slides) |
+
+Plus:
 
 | Artifact | Description |
 |---|---|
-| **Handoff doc** | What was completed, what remains, blockers/open issues, key decisions, files modified, branch status |
 | **Lessons update** | Non-obvious debugging patterns and user corrections captured |
 | **Memory files** | New feedback/reference files created or updated |
-| **ADRs** | Architectural Decision Records for significant choices |
 | **Future plan** | Updated with completed items and newly discovered work |
-| **Sessions archive** | Running log of all sessions with dates and outcomes |
+| **Sessions archive** | Running log of all sessions with dates, outcomes, and bucket footprint |
 | **PR (committed + pushed)** | All session work committed to a feature branch, pushed, and a PR created (optionally merged) |
 | **Next session prompt** | Paste-ready prompt with full context to resume immediately |
+| **Doc-freshness reverse-lint** | Invokes [doc-freshness-reverse-lint](https://github.com/wan-huiyan/claude-ecosystem-hygiene/tree/main/plugins/doc-freshness-reverse-lint) against lessons/feedback touched this session and surfaces candidate stale docs in the handoff |
 | **Consolidated plan** | *(when 3+ handoffs exist)* Single source of truth with decision supersession, gap analysis, and PR reconciliation |
 
 ## Typical Ad-Hoc vs With Skill
@@ -73,11 +86,11 @@ Every handoff produces:
 
 | Phase | Steps | What happens |
 |---|---|---|
-| **1. Capture** | 1-4 | Scan git log, write handoff doc, capture lessons, update memory files |
-| **2. Update** | 5-9 | Propagate to future plan, roadmap, sessions archive, MEMORY.md, ADRs |
-| **3. Prepare** | 10-11 | Write next-session prompt(s) for all work streams |
-| **4. Commit, PR, Verify** | 12-17 | Commit code + docs, push branch, create PR, optionally merge, memory hygiene check |
-| **5. Consolidate** | 18-22 | *(conditional)* Merge handoffs into single plan, track decision supersession, identify gaps |
+| **1. Capture** | 1-4 | Scan git log, capture lessons, collect session artifacts for bucket triage |
+| **2. Dispatch** | 5-16 | Route session output to the 7 canonical buckets (decisions/runbooks/analysis/references/reviews/handoffs/deliverables), then propagate to future plan, sessions archive, MEMORY.md |
+| **3. Prepare** | 17-18 | Write next-session prompt(s) for all work streams |
+| **4. Commit, PR, Verify** | 19-25 | Commit code + docs, push branch, create PR, optionally merge, memory hygiene check, **doc-freshness reverse-lint** |
+| **5. Consolidate** | 26-30 | *(conditional)* Merge handoffs into single plan, track decision supersession, identify gaps |
 
 ### When does consolidation run?
 
@@ -124,10 +137,13 @@ The skill guarantees:
 
 ## Related Skills
 
-- **[memory-hygiene](https://github.com/wan-huiyan/memory-hygiene)** — Deep memory cleanup beyond what Phase 4 covers
+- **[memory-hygiene](https://github.com/wan-huiyan/memory-hygiene)** v3.1+ — Source of truth for the 7-bucket `docs/` taxonomy. Deep memory cleanup + `docs/` taxonomy audit/migration beyond what session-handoff does in-line.
+- **[doc-freshness-reverse-lint](https://github.com/wan-huiyan/claude-ecosystem-hygiene/tree/main/plugins/doc-freshness-reverse-lint)** — Invoked automatically in Phase 4 step 24. Catches stale normative guidance in project docs after lessons/feedback updates. Falls back gracefully if not installed.
+- **[successor-handoff](https://github.com/wan-huiyan/context-baton/tree/master/plugins/successor-handoff)** — Mid-run agent-to-agent handoff for long autonomous workflows. Pairs with session-handoff in the context-baton bundle.
 
 ## Version History
 
+- **1.4.0** — Aligned with [memory-hygiene v3.1](https://github.com/wan-huiyan/memory-hygiene/pull/3) 7-bucket `docs/` taxonomy. New Phase 2 dispatches session output across `decisions/runbooks/analysis/references/reviews/handoffs/deliverables` instead of a single handoff file. Phase 4 adds a mandatory doc-freshness reverse-lint verify step.
 - **1.3.0** — Phase 4 now includes explicit commit, push, PR creation, and optional merge steps. Previously just said "commit and push any stragglers" which was too vague.
 - **1.2.0** — Plugin packaging fix: restructured to canonical `plugins/<name>/` layout.
 - **1.1.0** — Merged session-handoff-consolidator as Phase 5 (conditional consolidation). Added edge case handling, anti-patterns section, improved triggers.
