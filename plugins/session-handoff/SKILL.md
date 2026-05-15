@@ -1,7 +1,7 @@
 ---
 name: session-handoff
-description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.1), triggers a doc-freshness reverse-lint to catch stale normative guidance, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.7.0
+description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint to catch stale normative guidance, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
+version: 1.8.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -21,12 +21,12 @@ Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
 source of truth when multiple handoffs accumulate.
 
-**v1.4 alignment with memory-hygiene v3.1**: session output is dispatched across
+**v1.4 alignment with memory-hygiene v3.3**: session output is dispatched across
 the canonical **7-bucket docs/ taxonomy** — not just `docs/handoffs/`. At the end of
 the workflow, invokes `doc-freshness-reverse-lint` against any memory files touched
 this session to surface stale normative guidance in project docs.
 
-Counterpart skill: **memory-hygiene v3.1** cleans Claude's persistent memory +
+Counterpart skill: **memory-hygiene v3.3** cleans Claude's persistent memory +
 audits project `docs/` against the same taxonomy. Run memory-hygiene after
 10+ sessions or when `docs/` has drifted.
 
@@ -38,7 +38,7 @@ audits project `docs/` against the same taxonomy. Run memory-hygiene after
 - After parallel sessions complete and you need one "start here" document
 - User says "consolidate", "what's the current state"
 
-## Canonical 7-bucket docs/ taxonomy (from memory-hygiene v3.1)
+## Canonical 7-bucket docs/ taxonomy (from memory-hygiene v3.3)
 
 Session output is **dispatched** to the right bucket — not dumped into one handoff file.
 A typical rich session produces artifacts in 3-5 of these 7 buckets simultaneously.
@@ -294,6 +294,19 @@ bucket output rather than duplicating its content.
       `file:line` references and the triggering rule. **Never auto-edit** the flagged docs; the
       human decides what to update.
     - If `reverse_lint.py` is unavailable, log "doc-freshness-reverse-lint: not installed" and continue.
+
+24b. **Skill freshness audit** (per axiom #21) — if any `SKILL.md` was edited this session, run the freshness check:
+
+    ```bash
+    # Only if a SKILL.md was touched this session
+    if git diff --name-only HEAD~N..HEAD | grep -q 'skills/.*/SKILL\.md$'; then
+      python3 ~/.claude/skills/doc-freshness-reverse-lint/scripts/skill_freshness_audit.py --human
+    fi
+    ```
+
+    Flags any skill whose `last_verified` has aged past `staleness_window_days` (default 90), or that opts into the freshness contract without declaring one. **Never auto-bump** `last_verified` — surface candidates for human verification and add them to the "Stale docs to review" section of the handoff doc.
+
+    Skip silently if no SKILL.md was touched. If the audit script is unavailable, log "skill_freshness_audit: not installed" and continue.
 
 25. **Final confirmation** to user: list all artifacts produced, grouped by bucket
 
