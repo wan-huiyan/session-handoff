@@ -2,7 +2,7 @@
 
 End-of-session handoff that captures all knowledge, **dispatches session output across the canonical 7-bucket `docs/` taxonomy** (aligned with [memory-hygiene v3.3](https://github.com/wan-huiyan/memory-hygiene)), and prepares paste-ready prompts for the next session. Includes a built-in **label audit** (Phase 0), cross-session consolidation when multiple handoffs accumulate, a mandatory **doc-freshness reverse-lint + skill-freshness audit** that catches stale normative guidance, **future-to-do GitHub issue emission**, and a closing **user-facing live-dashboard recap** for the chat.
 
-**v1.9** is the current release — aligned with the 7-bucket taxonomy, with skill-freshness audit and future-to-do issue emission layered on top of the bucket-aware dispatch introduced in v1.4.
+**v1.13** is the current release — adds the review-findings audit (handoff §7 table + step 24d merge into the usage record), hardened subagent-usage verification (including the unit-mismatch variant: a non-zero scalar can still be ~2× off the itemized truth), a new-model rate-table caveat, next-prompt gating (write one only when a next action is recommended), and docs-only handoff-PR auto-merge — on top of the v1.9 bucket-aware dispatch.
 
 ## Quick Start
 
@@ -221,6 +221,7 @@ hook in a genuine emergency with `git push --no-verify` (the server gate still a
 
 ## Version History
 
+- **1.13.1** — Review-findings audit: handoff §7 table (finding · reviewer · disposition) + step 24d merge into the session usage record. Subagent-record verification replaces the "fixed in both tools" claim: always sanity-check against a recursive transcript count; a non-zero subagent scalar can still be ~2× off the itemized truth (unit mismatch) — prefer the bundled tokens-only recompute's record. New-model rate-table caveat (tokens canonical, fork dollars flagged). Next-session prompt gated on a real recommended action (step 17). Docs-only handoff PRs: review-agent pass then squash-merge (step 22). Squash-merged-branch docs-PR rebuild recipe (step 20). Cost examples stated as ratios (anonymization pass).
 - **1.9.1** — Added a session usage-metrics step (step 24c): archives the session's `cctime` output as a structured record so handoffs carry token/cost accounting. Invokes the cctime fork by absolute path to avoid the upstream name-collision. Falls back gracefully if the fork isn't installed.
 - **1.9.0** — Skill-freshness audit step (runs when any SKILL.md edited this session) + future-to-do GitHub issue emission (each follow-up filed via `gh issue create`) + memory-hygiene v3.3 alignment in the lead.
 - **1.8.0** — Added the skill-freshness audit script wiring and tightened v3.3 references throughout the checklist.
