@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.9.1
+version: 1.13.1
 triggers:
   - "wrap up"
   - "session handoff"
@@ -15,7 +15,7 @@ triggers:
   - "start here document"
 ---
 
-# Session Handoff v1.9 — Bucket-aware + reverse-lint + skill-freshness + issue emission
+# Session Handoff v1.13 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
 
 Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
@@ -52,7 +52,7 @@ A typical rich session produces artifacts in 3-5 of these 7 buckets simultaneous
 | 3 | `docs/analysis/` | Findings, investigations, diagnostics, discovery write-ups, exploratory analyses | `analysis_<topic>.md`, `discovery_<topic>.md`, `findings_<topic>.md` |
 | 4 | `docs/references/` | New/updated schema, data dictionary, API ref, project-convention doc | `<system>_reference.md`, `data_dictionary.md`, `<topic>_dictionary.md` |
 | 5 | `docs/reviews/` | Review-panel output, peer review, audit report | `review_<topic>.md`, `<topic>_audit_report.md`, `next_stage_<topic>.md` |
-| 6 | `docs/handoffs/` | **Always** — this session's handoff doc + next-session prompt + (optional) parallel prompts | `session_N_handoff.md`, `session_N+1_prompt.md`, `session_N+1b_<topic>_prompt.md` |
+| 6 | `docs/handoffs/` | **Handoff doc always**; next-session prompt **only when there's a recommended next action** (Phase 3 step 17); optional parallel prompts | `session_N_handoff.md`, `session_N+1_prompt.md` (conditional), `session_N+1b_<topic>_prompt.md` |
 | 7 | `docs/deliverables/` | External-facing artifact (client draft, published output, slide deck, PDF, XLSX) | Keep original extension; add a `.provenance.md` sibling if the artifact was generated |
 
 **Reserved top-level file**: only `docs/README.md`. No other loose files at `docs/*`.
@@ -136,6 +136,16 @@ session is downstream of these too.
    - Section 4: Key decisions (table: Decision | Resolution | Rationale)
    - Section 5: Files modified (table)
    - Section 6: Branch status
+   - Section 7 (**REQUIRED when a review panel or code-review agent ran this session** — `roundtable:agent-review-panel`, `/code-review`, `requesting-code-review`, or any reviewer subagent): **Review findings** — a table of every P0/P1/P2 the reviewers caught, **which reviewer caught each** (persona + speciality / VoltAgent `subagent_type`), and its disposition. This makes the cost of the review gate legible, shows whether the panel earned its keep, and — accumulated across sessions — reveals which perspectives reliably catch which bug classes (so future panels can be staffed deliberately). Use this shape:
+
+     | Severity | Finding (one line) | Caught by (persona · speciality) | Disposition |
+     |---|---|---|---|
+     | P1 | Client `.j2` rendered new negative phrases as "inconclusive" — contradicted the headline | Correctness Hawk · `voltagent-qa-sec:code-reviewer` | Fixed `7ae73a0` |
+     | P1 | `_mechanism_story` ungated by framing (gap #2) | Architecture Critic · `voltagent-qa-sec:architect-reviewer` | Fixed `7ae73a0` |
+     | P2 | Sign-label bug: P(positive) mislabeled "probability of a negative effect" | Correctness Hawk · `voltagent-qa-sec:code-reviewer` | Fixed `7ae73a0` |
+     | P3 | MIXED override is a 3rd behaviour change | Devil's Advocate · generic | Documented (accepted) |
+
+     Rules: one row per finding the panel **raised** (not just the ones you fixed) — include `Documented`/`Rejected` dispositions so a deferred-but-real concern isn't lost. Cite the fixing commit/PR for `Fixed`. If a finding was caught by multiple reviewers, list the primary + "(+N concur)". If **no** review ran this session, omit the section entirely (don't fabricate a clean-bill row). Pull the data from the review report's Action Items table + `integration_log.jsonl` (disposition/epistemic label) when those exist — don't reconstruct from memory.
 
 3. **Scan for missed lessons** — review the session for:
    - Debugging that required non-obvious investigation
@@ -260,11 +270,32 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
 
 ### Phase 3: Prepare (next session)
 
-17. **Write next session prompt** -> `docs/handoffs/session_N+1_prompt.md`
+17. **Write next session prompt — ONLY IF there is a recommended next action** -> `docs/handoffs/session_N+1_prompt.md`
+
+    **Gate first (skip the prompt when there's nothing to recommend).** A next-session
+    prompt is for carrying *forward-looking work* across a session boundary. If the
+    session closed its stream and you would NOT recommend a concrete next task — the
+    only "open" items are explicit do-not-build observations, tracked-elsewhere
+    backlog, or pure guardrails-for-hypothetical-future-work — **do not write a
+    next-session prompt at all.** A prompt that says "nothing forced here, here's
+    accurate state" is overhead the user has asked you not to produce: the handoff
+    doc (Phase 1) already captures state, and manufacturing a to-do-less prompt reads
+    as dragging the session on. In that case, note in the handoff doc + final summary
+    "no next-session prompt — stream closed, no recommended next action" and stop.
+
+    **Write the prompt only when** you would genuinely tell the next session "do X
+    next" — a real, scoped, recommended task (or a hard blocker that a future session
+    must pick up). Then include:
     - Key context (what's done, what's blocked)
     - Start files to read (include bucket-specific outputs from Phase 2)
     - Priority tasks with specific instructions
     - Research context
+
+    Corollary (user preference — [[feedback_resolve_now_when_context_healthy]]): if
+    there IS a recommended next task and the session is still under ~30% context,
+    prefer to just DO it now rather than write a prompt and stop. The prompt is for
+    work that genuinely can't finish now (context exhaustion, hard blocker, user
+    decision needed). Don't drag a closed session on, and don't defer tractable work.
 
 18. **Write parallel session prompts** when upcoming work can be split into independent streams
 
@@ -300,7 +331,7 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
 20. **Commit all session work** — stage and commit in logical groups:
     - **Code changes first:** feature code, bug fixes, tests (one commit with descriptive message)
     - **Docs second:** handoff doc, next-session prompt, plan updates, lessons (separate commit)
-    - If the session already has multiple commits on a feature branch, add docs as a new commit on the same branch.
+    - If the session already has multiple commits on a feature branch, add docs as a new commit on the same branch — **unless that branch was already squash-merged.** Check first: `gh pr list --head <branch> --state merged`. If it merged, the branch still carries its pre-squash commits (squash-merge never marks them merged locally), so a docs PR from its HEAD shows the WHOLE feature diff and can conflict with parallel streams that touched the same files after the squash. Instead: commit the docs where you are, then rebuild — `git reset --hard origin/main` + `git cherry-pick <docs-sha>...` onto a fresh docs branch (docs files rarely overlap the feature files, so the picks are clean). Verify with `git diff --stat origin/main..HEAD` that ONLY the docs files remain before pushing.
     - If uncommitted work is on `main`, create a feature branch first: `git checkout -b feat/sN-description`
 
 21. **Push and create PR:**
@@ -442,10 +473,21 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     stale; cost estimation is delegated to the cctime fork / token-torch). Slower than cctime,
     but works without it.
 
-    **Subagent token/cost accounting (now correct in BOTH tools as of 2026-05-29).** Subagent spend
-    (foreground Agent dispatches AND Workflow fan-outs) used to be undercounted; both the cctime fork
-    and `session_metrics.py` were fixed this session and now agree (~$59 / 17 transcripts on the
-    reference session). Three traps the fixes address — relevant if you write your own recompute:
+    **Subagent token/cost accounting — VERIFY the record, don't trust the fix claims.** Both tools
+    were patched 2026-05-29 (fork + `session_metrics.py`, agreeing on the reference session's 17
+    transcripts), BUT on 2026-07-16 the fork STILL wrote `enhancedStats.subagent: 0` /
+    main-only cost on a session whose only subagents were 82 workflow transcripts (recorded cost
+    ~30% of the true total). So after 24c writes the record, ALWAYS sanity-check
+    `find <session>/subagents -name 'agent-*.jsonl' | wc -l` (recursive) against it; if transcripts
+    exist but subagent spend ≈ 0, re-run the bundled `session_metrics.py` (recursive, produced the correct total)
+    and redirect its output over the fork's files so the canonical record is the complete one.
+    **Unit-mismatch variant (2026-07-23, same failure family, non-zero this time):** the fork's
+    scalar `enhancedStats.subagent` can be non-zero yet ~2× off the itemized truth (1.07M vs a
+    workflow's self-reported 2.44M; `session_metrics.py` itemized subagent output 514k + cache
+    fields) — the scalar's UNIT is not the itemized sum, so "non-zero" does NOT clear the check.
+    Same resolution: the token-itemized `session_metrics.py` record wins; note the fork figure in
+    `cost_note`. Three
+    traps — relevant if you write your own recompute:
     - **Nesting:** Workflow subagents live one level deeper than foreground ones —
       `<session>/subagents/agent-*.jsonl` (foreground) vs
       `<session>/subagents/workflows/wf_<runid>/agent-*.jsonl` (workflow). RECURSE; a flat
@@ -482,6 +524,63 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
       session that didn't go through the regular Claude Code transcript flow.
     - On the FIRST run after a Claude Code update, sanity-check cctime against the Anthropic
       billing dashboard — pricing constants may have moved.
+    - **NEW-MODEL sessions** (model id absent from the cctime fork's rate table — grep the fork's
+      `dist/index.js` for it): the bundled `session_metrics.py` recompute emits tokens only, so its
+      record has no dollars to diverge — but the fork's dollar figure is unreliable when the model
+      is unpriced (2026-07-23 `claude-fable-5` instance: dollar figures diverged >2× while token
+      counts agreed). Keep the tokens-only `session_metrics.py` record canonical with a `cost_note`,
+      recompute dollars when rates are pinned — do NOT keep-the-low.
+      See `cctime-record-main-loop-inflated-by-stale-binary` (new-model variant).
+
+24d. **Augment the usage record with review findings** (only when a review panel / code-review
+    agent ran this session — same trigger as handoff §7). The cost/token record from 24c answers
+    "what did this session cost"; this block answers "what did the review gate **catch**, and which
+    perspective caught it" — so accumulating `$OUT.json` across sessions (`jq -s`) reveals, e.g.,
+    which reviewer persona/speciality reliably finds which bug class, and the panel's true hit rate.
+    Merge a `review_findings` array into the auto-written JSON and append a section to the `.md`.
+    Pull from the review report's Action Items + `integration_log.jsonl` — do NOT hand-reconstruct.
+
+    ```bash
+    # One object per finding the panel RAISED (fixed + documented + rejected).
+    python3 - "$OUT.json" <<'PY'
+    import json, sys
+    p = sys.argv[1]
+    d = json.load(open(p))
+    d["review_findings"] = [
+      # severity: P0|P1|P2|P3 · disposition: fixed|documented|rejected|deferred
+      {"severity": "P1",
+       "finding": "Client .j2 rendered new negative phrases as 'inconclusive' — contradicted headline",
+       "reviewer_persona": "Correctness Hawk",
+       "reviewer_speciality": "voltagent-qa-sec:code-reviewer",
+       "disposition": "fixed", "ref": "7ae73a0", "epistemic_label": "[VERIFIED]"},
+      # ... one row per finding ...
+    ]
+    # roll-up so cross-session jq stays cheap
+    from collections import Counter
+    sev = Counter(f["severity"] for f in d["review_findings"])
+    disp = Counter(f["disposition"] for f in d["review_findings"])
+    d["review_summary"] = {"panel_ran": True, "n_findings": len(d["review_findings"]),
+                           "by_severity": dict(sev), "by_disposition": dict(disp),
+                           "review_report": "docs/reviews/<dir>/review_panel_report.md"}
+    json.dump(d, open(p, "w"), indent=2)
+    print("review_findings merged:", d["review_summary"])
+    PY
+    # human-readable companion — append the same table that's in handoff §7
+    cat >> "$OUT.md" <<'MD'
+
+## Review findings (this session)
+| Severity | Finding | Caught by (persona · speciality) | Disposition |
+|---|---|---|---|
+| P1 | … | Correctness Hawk · voltagent-qa-sec:code-reviewer | Fixed `7ae73a0` |
+MD
+    ```
+
+    - If 24c wrote nothing (metrics tooling absent / no transcript), still record the findings:
+      write a minimal `$OUT.json` containing just `review_summary` + `review_findings` so the audit
+      trail isn't lost when the cost half is unavailable.
+    - If NO review ran, set `"review_summary": {"panel_ran": false}` (or omit) — never fabricate findings.
+    - Keep `severity`, `reviewer_persona`, `reviewer_speciality`, `disposition` as the stable keys
+      (the cross-session query contract); add free-form fields freely.
 
 25. **Final confirmation** to user: list all artifacts produced, grouped by bucket
 
@@ -627,7 +726,8 @@ the session didn't touch — don't fabricate entries.
 | `docs/analysis/` | N new/updated — or "—" |
 | `docs/references/` | N new/updated — or "—" |
 | `docs/reviews/` | N new/updated — or "—" |
-| `docs/handoffs/` | `session_N_handoff.md` + `session_N+1_prompt.md` (+ parallel prompts if any) |
+| **Review findings (P0/P1/P2 caught + reviewer)** | **N findings (n fixed / n documented / n rejected) — table in handoff §7 + usage record; or "— (no review ran)"** |
+| `docs/handoffs/` | `session_N_handoff.md` (always) + `session_N+1_prompt.md` **only if a next action is recommended** (else note "no next-session prompt — stream closed") (+ parallel prompts if any) |
 | `docs/deliverables/` | N new artifacts — or "—" |
 | `docs/plans/future_sessions_plan.md` | Updated / consolidated (if Phase 5) |
 | `memory/lessons.md` | N new (total: M) |
@@ -708,6 +808,13 @@ Handoff doc sections:
 | Decision | Resolution | Rationale |
 |---|---|---|
 | Token storage | httpOnly cookies | XSS protection vs localStorage |
+
+## Review findings (panel ran — PR #15)
+| Severity | Finding | Caught by (persona · speciality) | Disposition |
+|---|---|---|---|
+| P1 | Token refresh race under concurrent requests | Correctness Hawk · `voltagent-qa-sec:code-reviewer` | Fixed `a1b2c3d` |
+| P2 | Error messages leak the auth provider name | Security Auditor · `voltagent-qa-sec:security-auditor` | Fixed `a1b2c3d` |
+| P3 | Suggest extracting the cookie helper | Architecture Critic · `voltagent-qa-sec:architect-reviewer` | Deferred (backlog #31) |
 
 ## Branch Status
 - `feature/auth-flow` — 4 commits ahead of main, ready for PR
