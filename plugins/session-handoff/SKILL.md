@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.13.1
+version: 1.14.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -270,14 +270,32 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
 
 ### Phase 3: Prepare (next session)
 
-17. **Write next session prompt — ONLY IF there is a recommended next action** -> `docs/handoffs/session_N+1_prompt.md`
+17. **Prepare the next session prompt — ALWAYS, if there is any next work at all** -> `docs/handoffs/session_N+1_prompt.md`
 
-    **Gate first (skip the prompt when there's nothing to recommend).** A next-session
-    prompt is for carrying *forward-looking work* across a session boundary. If the
-    session closed its stream and you would NOT recommend a concrete next task — the
-    only "open" items are explicit do-not-build observations, tracked-elsewhere
-    backlog, or pure guardrails-for-hypothetical-future-work — **do not write a
-    next-session prompt at all.** A prompt that says "nothing forced here, here's
+    **PREPARING IT IS PART OF THE HANDOFF. Pointing at a prompt that already exists
+    does NOT count** (owner's instruction, 2026-08-04: *"please always prep next
+    session prompt if available at all as part of the session handoff"*). A prompt
+    written earlier in the SAME session is stale by the end of it — it was drafted
+    before the session's later findings, and the receiving session executes it
+    trusting that it is current. So:
+
+    - **A prompt already exists?** Re-read it against what the session actually
+      learned, and EDIT it. Fold in every gap you would otherwise have written into
+      the handoff as "the obvious first move" — as a numbered step, with its inputs.
+      Anything left as "whoever picks this up should scope X" belongs to nobody.
+    - **Verify the paths and recipes you put in it.** A prompt is executed by
+      someone who trusts it. (2026-08-04: a handoff asserted "every card carries the
+      funnel's placement" in five documents; the card carried no such thing, and the
+      builder stripped it on purpose. The claim survived because nobody ran it.)
+    - **Multiple live prompts?** Say which is FIRST and why, and mark any whose
+      premise the session moved.
+
+    **The one case for skipping (and then SAY so, in the handoff and the summary).**
+    A next-session prompt is for carrying *forward-looking work* across a session
+    boundary. If the session closed its stream and you would NOT recommend a concrete
+    next task — the only "open" items are explicit do-not-build observations,
+    tracked-elsewhere backlog, or pure guardrails-for-hypothetical-future-work —
+    **do not manufacture one.** A prompt that says "nothing forced here, here's
     accurate state" is overhead the user has asked you not to produce: the handoff
     doc (Phase 1) already captures state, and manufacturing a to-do-less prompt reads
     as dragging the session on. In that case, note in the handoff doc + final summary
@@ -727,7 +745,7 @@ the session didn't touch — don't fabricate entries.
 | `docs/references/` | N new/updated — or "—" |
 | `docs/reviews/` | N new/updated — or "—" |
 | **Review findings (P0/P1/P2 caught + reviewer)** | **N findings (n fixed / n documented / n rejected) — table in handoff §7 + usage record; or "— (no review ran)"** |
-| `docs/handoffs/` | `session_N_handoff.md` (always) + `session_N+1_prompt.md` **only if a next action is recommended** (else note "no next-session prompt — stream closed") (+ parallel prompts if any) |
+| `docs/handoffs/` | `session_N_handoff.md` (always) + the next-session prompt **written or REFRESHED** — naming which, and never just cited (else note "no next-session prompt — stream closed") (+ parallel prompts if any) |
 | `docs/deliverables/` | N new artifacts — or "—" |
 | `docs/plans/future_sessions_plan.md` | Updated / consolidated (if Phase 5) |
 | `memory/lessons.md` | N new (total: M) |
