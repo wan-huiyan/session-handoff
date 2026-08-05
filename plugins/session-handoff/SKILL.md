@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.14.2
+version: 1.15.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -234,6 +234,17 @@ bucket output rather than duplicating its content.
        yet.** A tracker entry is finished when the PR is **merged**, not when the
        card is written — go back and add the number, and the same for any
        artifact whose page lands in that PR.
+
+       **AND THE VARIANT THAT SURVIVES DOING THAT: a card is finished when the
+       LAST of its PRs merges, not the first.** The obvious failure is `prs: []`.
+       The one that gets past it is a card carrying a *plausible, non-empty*
+       chip that is simply short — you added the number when the card was
+       written, then kept working and merged three more. On 2026-08-05 a session
+       shipped eight PRs across three cards and **three of them (#534, #536,
+       #541) were on no card at all**; every card looked correct in the diff and
+       passed the validator, because a validator can only see that the field is
+       populated. **Only step 25's enumeration catches it** — the card cannot
+       know about a PR that merged after it.
     2. **Every figure you paste into a tracker is a COPY, and a parallel session
        can rot it inside an hour.** Rebasing resolves the text conflict and tells
        you nothing about the values. After any rebase onto someone else's work,
@@ -657,7 +668,52 @@ MD
     - Keep `severity`, `reviewer_persona`, `reviewer_speciality`, `disposition` as the stable keys
       (the cross-session query contract); add free-form fields freely.
 
-25. **Final confirmation** to user: list all artifacts produced, grouped by bucket
+25. **THE TWO CLOSING CHECKS — run them before you say the handoff is done.**
+
+    Both exist because a user had to ask for them. On 2026-08-05 a session
+    completed every phase above, reported the wrap-up as finished, and the owner
+    asked *"has everything been updated in the tracker about this session's work?
+    Can I close and tell the next session to execute the prompt, and it would
+    know everything?"* **Both halves of that question found a real gap.** The
+    fix is not to remember harder; it is that neither gap is visible from
+    inside the artifacts you just wrote — each needs a fact from outside them.
+
+    **(a) Enumerate the session's merged PRs and match them against the cards.**
+    Do not eyeball this and do not trust that the field is populated.
+
+    ```bash
+    # every PR this session merged, oldest first
+    gh pr list --state merged --limit 30 --json number,title,mergedAt \
+      --jq '[.[] | select(.mergedAt > "<session-start-ISO>")] | sort_by(.number) | .[] | "\(.number)\t\(.title)"'
+    ```
+
+    Then read the tracker/ledger back and assert **every one of those numbers
+    appears on some card**. A PR that merged after its card was written is
+    invisible to that card by construction — this enumeration is the only thing
+    that sees it. Add the missing numbers, and if a card's own PR is still open,
+    leave `prs_none_reason` and come back.
+
+    **(b) Cold-start the next-session prompt — read it as someone with no
+    memory of this session.** You wrote it knowing everything, which is exactly
+    why you cannot tell whether it stands alone. Ask three questions of it:
+
+    - **Does it carry the CONTEXT, or only the TASK?** A prompt can be perfectly
+      executable and still read as a trivial chore because the reason it matters
+      lives only in your head. The 2026-08-05 prompt described a coordinate-
+      convention bug flawlessly and never said it was the gate on the owner's
+      central ask. **Put the two or three documents to read first at the top,
+      plus the handful of findings that frame the work**, so a cold session has
+      them even if it reads nothing else.
+    - **Does every path, function and line number in it resolve?** You verified
+      them when you wrote it; verify again if anything merged since.
+    - **Does it say what only the owner can do**, separately from what the
+      session can — even when the answer is "nothing"? Saying "nothing here
+      needs you" is itself load-bearing information.
+
+    If the answer to the user's question would be *"yes, but they should also
+    read X"*, then **X belongs in the prompt** and the answer is currently no.
+
+26. **Final confirmation** to user: list all artifacts produced, grouped by bucket
 
 ### Phase 5: Consolidate (when 3+ handoffs exist)
 
@@ -812,7 +868,18 @@ the session didn't touch — don't fabricate entries.
 | **Session usage record (step 24c)** | **REQUIRED — `~/.claude/usage-tracking/<date>_<sid8>_<project>.{json,md}` written (cost $X, N subagents) or explicit "skipped: <reason>"** |
 | Doc-freshness reverse-lint | Clean / N candidates surfaced in handoff doc |
 | PR | `#N` — merged / open for review. **If the tracker card was written before the PR existed, say the chip is still owed and go back for it once it merges** |
+| **PR-to-card enumeration (step 25a)** | **REQUIRED — "N PRs merged this session, all N on a card" with the numbers, or the ones you went back and added. Never "the chips look right"** |
+| **Prompt cold-start check (step 25b)** | **REQUIRED — "reads standalone: context section + verified paths + owner-only section", or "no prompt: <reason>"** |
 | Git status | All committed and pushed |
+
+> **Three rows are NOT blankable — the usage record and the two closing checks.**
+> Steps 25a and 25b exist because on 2026-08-05 a session presented a complete
+> wrap-up and the owner's follow-up question — *"is everything in the tracker, and
+> would the next session know everything?"* — found a real gap on **both** halves.
+> Neither is visible from inside the artifacts you just wrote: a card cannot know
+> about a PR that merged after it, and you cannot judge whether a prompt stands
+> alone while holding the context it omits. **If either cell is empty when you
+> reach this table, go back and run step 25 before presenting.**
 
 > **The "Session usage record" row is NOT blankable** — it is the forcing function for step 24c,
 > which is otherwise easy to drop (it's a nested step late in Phase 4, after the PR merge, and the
