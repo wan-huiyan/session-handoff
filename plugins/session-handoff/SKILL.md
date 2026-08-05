@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.14.1
+version: 1.14.2
 triggers:
   - "wrap up"
   - "session handoff"
@@ -226,7 +226,7 @@ bucket output rather than duplicating its content.
       never touched. Locate the one object, render just that, splice it back,
       then re-parse the whole file to prove you did not break it.
 
-    **THREE PARTS OF THIS OUTLIVE THE WRAP-UP, so the wrap-up cannot be the last
+    **FOUR PARTS OF THIS OUTLIVE THE WRAP-UP, so the wrap-up cannot be the last
     thing you do.** Doing all N parts and still leaving the repo lying is the
     normal failure, not a careless one:
 
@@ -242,6 +242,22 @@ bucket output rather than duplicating its content.
        makes the next block due, and the successor normally has no home. **Ask
        what falls due BECAUSE you finished, and give it a task — and an issue —
        before you close yours.**
+    4. **A tracker field that mirrors LIVE state is a copy of something outside
+       the repo, and nothing in the repo can check it.** Item 2 is about figures
+       a parallel session can rot; this is worse, because no rebase, no
+       validator and no diff can see it. On 2026-08-05 DoodleRun's
+       `meta.deployed_rev` read `doodlerun-00025-lc8` while the live service was
+       **two revisions behind main** — so a feature that had merged, shipped to
+       TestFlight and been verified four ways was **unreachable in production**,
+       and the owner found it on his phone in one try. **Check any such field
+       against the thing itself** (`gcloud run services describe`, a `curl` of
+       the deployed endpoint) — never against the repo, which agrees with itself
+       by construction.
+
+       The general form, worth stating because it outruns trackers: **a harness
+       that stands in for a dependency proves your code handles a shape. Only
+       the dependency proves the shape arrives.** Before a card says a
+       server-fed surface is ready to look at, read the deployed contract.
 
 
 15. **Update sessions archive** -> `memory/sessions_archive.md`
