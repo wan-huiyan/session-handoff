@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.14.0
+version: 1.14.1
 triggers:
   - "wrap up"
   - "session handoff"
@@ -52,7 +52,7 @@ A typical rich session produces artifacts in 3-5 of these 7 buckets simultaneous
 | 3 | `docs/analysis/` | Findings, investigations, diagnostics, discovery write-ups, exploratory analyses | `analysis_<topic>.md`, `discovery_<topic>.md`, `findings_<topic>.md` |
 | 4 | `docs/references/` | New/updated schema, data dictionary, API ref, project-convention doc | `<system>_reference.md`, `data_dictionary.md`, `<topic>_dictionary.md` |
 | 5 | `docs/reviews/` | Review-panel output, peer review, audit report | `review_<topic>.md`, `<topic>_audit_report.md`, `next_stage_<topic>.md` |
-| 6 | `docs/handoffs/` | **Handoff doc always**; next-session prompt **only when there's a recommended next action** (Phase 3 step 17); optional parallel prompts | `session_N_handoff.md`, `session_N+1_prompt.md` (conditional), `session_N+1b_<topic>_prompt.md` |
+| 6 | `docs/handoffs/` | **Handoff doc always**; next-session prompt **always, whenever there is any next work at all** — written or REFRESHED, never merely cited (Phase 3 step 17). Skip only when you would recommend no concrete next task, and then SAY so; optional parallel prompts | `session_N_handoff.md`, `session_N+1_prompt.md`, `session_N+1b_<topic>_prompt.md` |
 | 7 | `docs/deliverables/` | External-facing artifact (client draft, published output, slide deck, PDF, XLSX) | Keep original extension; add a `.provenance.md` sibling if the artifact was generated |
 
 **Reserved top-level file**: only `docs/README.md`. No other loose files at `docs/*`.
@@ -201,7 +201,48 @@ bucket output rather than duplicating its content.
     - Add new items discovered during session
     - Update status of in-progress items
 
-14. **Update roadmap** (if it exists)
+14. **Update the project's own tracker / roadmap / ledger — EVERY part of its
+    ritual, not the easy ones**
+
+    Many repos keep a hand-maintained progress tracker with its own documented
+    wrap-up procedure (DoodleRun: `docs/site/assets/data.js`, seven parts, listed
+    in that file's own header). **That header IS the checklist — read it and do
+    all of it.** A session that ships work without updating the tracker has left
+    the repo lying, and the parts people skip are always the same ones.
+
+    - **Do every part.** Typically: a session card; task statuses (folding in any
+      live/overlay ticks the owner made from a phone, then CLEARING the overlay);
+      new rulings appended, never silently edited — supersede instead; newly
+      committed pages registered as artifacts; refreshed issue/state snapshots;
+      **your session taken OFF any running board** (nothing expires it — no
+      heartbeat, no TTL — so a card left up keeps telling the owner your session
+      is alive); and the "last updated" stamp bumped.
+    - **Run its validator if it has one** (`node docs/site/tools/validate_data.mjs`
+      and friends). Validators here enforce enums the schema does not document,
+      so run them rather than guessing.
+    - **Splice, never re-dump.** If the ledger is machine-parseable and
+      hand-formatted, a full re-serialise comes back with dozens of lines of diff
+      that are other sessions' escaping — which lands as a conflict on work you
+      never touched. Locate the one object, render just that, splice it back,
+      then re-parse the whole file to prove you did not break it.
+
+    **THREE PARTS OF THIS OUTLIVE THE WRAP-UP, so the wrap-up cannot be the last
+    thing you do.** Doing all N parts and still leaving the repo lying is the
+    normal failure, not a careless one:
+
+    1. **The PR chip cannot be written at wrap-up, because the PR does not exist
+       yet.** A tracker entry is finished when the PR is **merged**, not when the
+       card is written — go back and add the number, and the same for any
+       artifact whose page lands in that PR.
+    2. **Every figure you paste into a tracker is a COPY, and a parallel session
+       can rot it inside an hour.** Rebasing resolves the text conflict and tells
+       you nothing about the values. After any rebase onto someone else's work,
+       re-grep the figures you wrote against the artifacts they came from.
+    3. **Flipping a task to `done` is half a status change.** Closing one block
+       makes the next block due, and the successor normally has no home. **Ask
+       what falls due BECAUSE you finished, and give it a task — and an issue —
+       before you close yours.**
+
 
 15. **Update sessions archive** -> `memory/sessions_archive.md`
     - Add entry with session number, date, one-line summary, key outcomes
@@ -748,12 +789,13 @@ the session didn't touch — don't fabricate entries.
 | `docs/handoffs/` | `session_N_handoff.md` (always) + the next-session prompt **written or REFRESHED** — naming which, and never just cited (else note "no next-session prompt — stream closed") (+ parallel prompts if any) |
 | `docs/deliverables/` | N new artifacts — or "—" |
 | `docs/plans/future_sessions_plan.md` | Updated / consolidated (if Phase 5) |
+| **Project tracker / ledger (step 14)** | **ALL parts of its own ritual + validator green — or explicit "— (no tracker in this repo)". Name the parts that outlive the wrap-up: PR chip pending merge, successor task filed** |
 | `memory/lessons.md` | N new (total: M) |
 | `memory/sessions_archive.md` | Updated — bucket footprint noted |
 | `MEMORY.md` index | Updated |
 | **Session usage record (step 24c)** | **REQUIRED — `~/.claude/usage-tracking/<date>_<sid8>_<project>.{json,md}` written (cost $X, N subagents) or explicit "skipped: <reason>"** |
 | Doc-freshness reverse-lint | Clean / N candidates surfaced in handoff doc |
-| PR | `#N` — merged / open for review |
+| PR | `#N` — merged / open for review. **If the tracker card was written before the PR existed, say the chip is still owed and go back for it once it merges** |
 | Git status | All committed and pushed |
 
 > **The "Session usage record" row is NOT blankable** — it is the forcing function for step 24c,
