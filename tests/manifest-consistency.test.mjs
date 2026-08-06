@@ -308,6 +308,44 @@ describe("Manifest consistency", () => {
     });
   }
 
+  // README's Version History is a shipped surface a human reads to decide whether a
+  // fix is in their build. A release that bumps the manifests but not the README
+  // reads as "that fix isn't in my version" — the same false-absence inference the
+  // 1.17.0 entry exists to document.
+  const readmePath = resolve(ROOT, "README.md");
+  if (existsSync(readmePath) && files.pluginJson) {
+    const readme = readFileSync(readmePath, "utf-8");
+    if (/^##\s+Version History/m.test(readme)) {
+      describe("README Version History", () => {
+        it("names the current version", () => {
+          const section = readme.split(/^##\s+Version History/m)[1] ?? "";
+          const first = section.match(/^\s*[-*]\s+\*\*([\d]+\.[\d]+\.[\d]+)\*\*/m);
+          assert.ok(first, "Version History must list entries as `- **X.Y.Z** — ...`");
+          assert.equal(
+            first[1],
+            files.pluginJson.version,
+            "newest Version History entry must match plugin.json version"
+          );
+        });
+      });
+    }
+  }
+
+  // The README enumerates the bundled scripts. Nothing tied that list to the directory,
+  // so a newly added script drifted out of the docs silently.
+  const scriptsDir = resolve(ROOT, "plugins/session-handoff/scripts");
+  if (existsSync(scriptsDir) && existsSync(resolve(ROOT, "README.md"))) {
+    const readmeText = readFileSync(resolve(ROOT, "README.md"), "utf-8");
+    describe("README bundled-scripts list", () => {
+      it("names every script that actually ships", () => {
+        const missing = readdirSync(scriptsDir)
+          .filter((f) => /\.(py|sh)$/.test(f))
+          .filter((f) => !readmeText.includes(f));
+        assert.deepEqual(missing, [], "README must name every file in plugins/session-handoff/scripts/");
+      });
+    });
+  }
+
   if (files.rootSkillMd) {
     describe("SKILL.md", () => {
       it("has YAML frontmatter with name", () => {

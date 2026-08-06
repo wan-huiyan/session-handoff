@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.16.0
+version: 1.17.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -15,7 +15,7 @@ triggers:
   - "start here document"
 ---
 
-# Session Handoff v1.13 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
+# Session Handoff v1.17 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
 
 Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
@@ -90,9 +90,10 @@ LABEL_AUDIT="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/label_audit.py}
 python3 "$LABEL_AUDIT" docs/handoffs/session_N_handoff.md
 ```
 
-If the script is not found at either location, log "label audit: not installed —
-labels unverified" in the handoff doc and continue — never block the handoff on
-missing tooling.
+If the script resolves at neither location, log "label audit: not found — tried
+&lt;both paths&gt; — labels unverified" in the handoff doc and continue — never block the
+handoff on missing tooling. Say "not found" (what you observed), not "not installed"
+(what you inferred); see the naming rule in step 24.
 
 **Behavior:**
 
@@ -462,36 +463,82 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     - Lessons added outside a hooked Edit (e.g., via in-memory batch)
     - Consolidated reports surfaced in the handoff doc itself
 
+    The logic is a bundled script, not a snippet here, so it can be executed and tested.
+    See `scripts/reverse_lint_step.sh` — while it lived in this file as a fenced block it
+    carried two undetected defects that both reported themselves as "clean".
+
     ```bash
-    # For each lessons.md / axioms.md / feedback_*.md touched this session:
-    for memfile in $(git diff --name-only HEAD~N..HEAD | grep -E '(lessons|axioms|feedback_.*)\.md$'); do
-      python3 ~/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py \
-        "$memfile" --project-root "$(pwd)" --human
-    done
+    # THE BOOTSTRAP NEEDS ALL THREE ROOTS. A plugin-scope install creates neither of the
+    # first two: CLAUDE_PLUGIN_ROOT is often unset in the shell a step runs in, and
+    # ~/.claude/skills/session-handoff/ does not exist at all — the plugin lives under
+    # ~/.claude/plugins/cache/<marketplace>/session-handoff/<version>/. Checking only the
+    # first two is the same defect this release fixes one level down, so do not trim it.
+    FOS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/find_own_script.sh}"
+    [ -f "$FOS" ] || FOS="$HOME/.claude/skills/session-handoff/scripts/find_own_script.sh"
+    [ -f "$FOS" ] || FOS="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+        -path '*/session-handoff/*/scripts/find_own_script.sh' 2>/dev/null \
+      | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
+
+    # BASE is the SHA this session started from. Substitute a real one. "HEAD~N" is a
+    # placeholder, not a revision — the script reports SKIPPED rather than scanning
+    # nothing and calling it clean.
+    BASE="${SESSION_BASE_SHA:-$(git rev-parse --verify --quiet HEAD~1 || git rev-parse --verify HEAD)}"
+
+    if [ ! -f "$FOS" ]; then
+      echo "reverse-lint: SKIPPED — find_own_script.sh not found at any of the three roots"
+    elif ! STEP="$(sh "$FOS" reverse_lint_step.sh)"; then
+      echo "reverse-lint: SKIPPED — $STEP"
+    else
+      sh "$STEP" "$BASE"
+    fi
     ```
 
+    The script prints exactly one status line, always, in one of three shapes:
+    `reverse-lint: clean (N file(s) scanned)` · `reverse-lint: N candidate(s) — see output
+    above` · `reverse-lint: SKIPPED — <reason>`. Copy that line into the summary table.
+
     **Wire behavior:**
-    - Zero candidates → exit silent, mention "reverse-lint: clean" in the summary table
+    - Zero candidates but N ≥ 1 scanned → "clean (N file(s) scanned)" in the summary table
     - ≥1 candidate → add a **"Stale docs to review"** section to `session_N_handoff.md` with
       `file:line` references and the triggering rule. **Never auto-edit** the flagged docs; the
       human decides what to update.
-    - If `reverse_lint.py` is unavailable, log "doc-freshness-reverse-lint: not installed" and continue.
+    - If the resolver fails, or `BASE` is not a real revision, report the step as **skipped** in
+      the summary table — **never as clean**. "Clean" and "never ran" must not look alike.
+    - **Never report a bare "not installed."** That is a claim about install state; all you
+      actually know is that a lookup missed. Say "not found" and print the roots tried. This
+      skill is usually installed as a *plugin*, and a bare "not installed" has already been
+      misread by a human as proof of absence when it was installed the whole time.
 
 24b. **Skill freshness audit** (per axiom #21) — if any `SKILL.md` was edited this session, run the freshness check:
 
     ```bash
-    # Only if a SKILL.md was touched this session
-    if git diff --name-only HEAD~N..HEAD | grep -q 'skills/.*/SKILL\.md$'; then
+    # Same BASE contract as step 24 — a real SHA, never a literal HEAD~N. Re-derive it
+    # here if you are running this block on its own rather than straight after step 24.
+    BASE="${BASE:-${SESSION_BASE_SHA:-$(git rev-parse --verify --quiet HEAD~1 || git rev-parse --verify HEAD)}}"
+
+    if ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
+      echo "skill-freshness: SKIPPED — BASE '$BASE' is not a revision"
+    elif git diff --name-only "$BASE"..HEAD | grep -qE '(^|/)SKILL\.md$'; then
       # Resolve the bundled script — plugin install first, then git-clone install:
       SFA="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/skill_freshness_audit.py}"
       [ -f "$SFA" ] || SFA="$HOME/.claude/skills/session-handoff/scripts/skill_freshness_audit.py"
-      python3 "$SFA" --human
+
+      # Guard the invocation. Without this, SFA holds a non-existent path and python3
+      # exits 2 with "can't open file" — the graceful fallback below was unreachable.
+      if [ -f "$SFA" ]; then
+        python3 "$SFA" --human
+      else
+        echo "skill_freshness_audit: not found — tried \$CLAUDE_PLUGIN_ROOT/scripts/ and" \
+             "\$HOME/.claude/skills/session-handoff/scripts/"
+      fi
     fi
     ```
 
     Flags any skill whose `last_verified` has aged past `staleness_window_days` (default 90), or that opts into the freshness contract without declaring one. **Never auto-bump** `last_verified` — surface candidates for human verification and add them to the "Stale docs to review" section of the handoff doc.
 
-    Skip silently if no SKILL.md was touched. If the audit script is unavailable at both locations, log "skill_freshness_audit: not installed" and continue.
+    Skip silently if no SKILL.md was touched. If the audit script resolves at neither location, log
+    "skill_freshness_audit: not found — tried &lt;both paths&gt;" and continue, and report the step as
+    **skipped** rather than clean. See the naming rule in step 24: never a bare "not installed".
 
 24c. **Persist session usage metrics** — archive this session's cctime output as a structured
     record under `~/.claude/usage-tracking/` for cross-session analytics (Karpathy-style usage tracking).
@@ -511,10 +558,26 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
       # Fork not present → in-skill recompute (same message.id dedup + recursive
       # subagent accounting as the fork; tokens only, no cost math).
       # Resolve the bundled script — plugin install first, then git-clone install:
+      # Three roots, as everywhere else — a plugin install creates neither of the first two.
       SM="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/session_metrics.py}"
       [ -f "$SM" ] || SM="$HOME/.claude/skills/session-handoff/scripts/session_metrics.py"
-      python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --json > "$OUT.json"
-      python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --print-summary > "$OUT.md"
+      # Self-contained third root: $FOS belongs to step 24's fence, and fences do not
+      # reliably share a shell.
+      [ -f "$SM" ] || SM="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+          -path '*/session-handoff/*/scripts/session_metrics.py' 2>/dev/null \
+        | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
+
+      # GUARD BEFORE REDIRECTING. `> "$OUT.json"` creates and truncates the file before
+      # python3 is even exec'd, so an unguarded call leaves a 0-byte record behind that
+      # reads as a written record to anything scanning the directory later.
+      if [ -n "$SM" ] && [ -f "$SM" ]; then
+        python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --json > "$OUT.json"
+        python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --print-summary > "$OUT.md"
+      else
+        echo "session metrics: not found — tried \$CLAUDE_PLUGIN_ROOT/scripts/," \
+             "\$HOME/.claude/skills/session-handoff/scripts/, and the plugin cache." \
+             "No usage record written; report the step as skipped."
+      fi
     fi
     ```
 
@@ -604,7 +667,7 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     **Wire behavior:**
     - If `~/.claude/usage-tracking/README.md` doesn't exist, the script doesn't create it — surface
       to the user that they should set up the tracking folder once.
-    - If neither cctime nor `session_metrics.py` is available, log "session metrics: not installed"
+    - If neither cctime nor `session_metrics.py` resolves, log "session metrics: not found — tried &lt;paths&gt;"
       and continue.
     - If both main and subagent JSONLs are missing for the session, skip silently — likely a
       session that didn't go through the regular Claude Code transcript flow.
@@ -907,13 +970,16 @@ the session didn't touch — don't fabricate entries.
 | `memory/sessions_archive.md` | Updated — bucket footprint noted |
 | `MEMORY.md` index | Updated |
 | **Session usage record (step 24c)** | **REQUIRED — `~/.claude/usage-tracking/<date>_<sid8>_<project>.{json,md}` written (cost $X, N subagents) or explicit "skipped: <reason>"** |
-| Doc-freshness reverse-lint | Clean / N candidates surfaced in handoff doc |
+| **Doc-freshness reverse-lint (step 24)** | **REQUIRED and NOT blankable — one of: "clean (N files scanned)" with N ≥ 1 / "N candidates surfaced in handoff doc" / "skipped: `<reason>`". "Clean" asserts the lint RAN and found nothing; if the resolver missed, or BASE was not a revision, or zero files were scanned, it is **skipped**, not clean** |
 | PR | `#N` — merged / open for review. **If the tracker card was written before the PR existed, say the chip is still owed and go back for it once it merges** |
 | **PR-to-card enumeration (step 25a)** | **REQUIRED — "N PRs merged this session, all N on a card" with the numbers, or the ones you went back and added. Never "the chips look right"** |
 | **Prompt cold-start check (step 25b)** | **REQUIRED — "reads standalone: context section + verified paths + owner-only section", or "no prompt: <reason>"** |
 | Git status | All committed and pushed |
 
-> **Three rows are NOT blankable — the usage record and the two closing checks.**
+> **Five rows are NOT blankable — the usage record, the next-session prompt PATH, the two closing checks, and the reverse-lint.**
+> The reverse-lint row joined them on 2026-08-06: the step had been dead on every plugin-scope
+> install (wrong root) *and* on every install (a literal `HEAD~N` scanned zero files), yet the
+> table only offered "Clean / N candidates" — so a step that never ran was written up as clean.
 > Steps 25a and 25b exist because on 2026-08-05 a session presented a complete
 > wrap-up and the owner's follow-up question — *"is everything in the tracker, and
 > would the next session know everything?"* — found a real gap on **both** halves.
@@ -1034,9 +1100,19 @@ ADRs, and optionally a consolidated plan. All files are committed and pushed.
 - Requires `git` for commit history and status
 - Requires `gh` CLI for PR status checks (gracefully degrades without it)
 - Works with any project structure that uses `docs/` and `memory/` directories (creates them if missing)
-- **Optional (recommended):** `doc-freshness-reverse-lint` skill at
-  `~/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py` — if absent, Phase 4 step 24
-  logs "not installed" and continues. Install from
+- **Optional (recommended):** the `doc-freshness-reverse-lint` skill. Phase 4 step 24 resolves its
+  `reverse_lint.py` at **two** locations, in order:
+  1. `$HOME/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py` — git-clone or
+     personal-scope install
+  2. `$HOME/.claude/plugins/cache/*/doc-freshness-reverse-lint/*/scripts/reverse_lint.py` — plugin
+     install, highest version wins
+
+  Resolution is done by the bundled `scripts/resolve_dep.sh`, not inline: `CLAUDE_PLUGIN_ROOT`
+  points at *this* plugin's root and cannot reach a sibling plugin. Both roots are required,
+  because a plugin install never creates the `~/.claude/skills/` path — checking only the first
+  made an installed plugin report as missing. Version ranking is on the version segment alone,
+  so a second marketplace cannot make an older copy win. If neither root resolves, step 24 logs
+  the roots it tried, reports the step as **skipped**, and continues. Install from
   `https://github.com/wan-huiyan/claude-ecosystem-hygiene/tree/main/plugins/doc-freshness-reverse-lint`.
 - **Taxonomy source of truth:** `memory-hygiene` v3.1+ defines the 7-bucket `docs/` taxonomy.
   Run `memory-hygiene` with `--migrate` if the target project's `docs/` has drifted from the taxonomy
