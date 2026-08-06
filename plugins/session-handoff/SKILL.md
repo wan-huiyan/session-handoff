@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.17.0
+version: 1.18.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -15,7 +15,7 @@ triggers:
   - "start here document"
 ---
 
-# Session Handoff v1.17 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
+# Session Handoff v1.18 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
 
 Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
@@ -83,9 +83,15 @@ prevents the "predecessor handoff fabricates semantic labels" failure mode
 **Run after Phase 1 Step 2 (handoff doc draft) and before any other phase.**
 
 ```bash
-# Resolve the bundled script — plugin install first, then git-clone install:
+# Resolve the bundled script across ALL THREE roots. A plugin install creates neither
+# of the first two: CLAUDE_PLUGIN_ROOT is often unset in the shell a step runs in, and
+# ~/.claude/skills/session-handoff/ does not exist. Checking only two silently skipped
+# this audit on every plugin-scope machine.
 LABEL_AUDIT="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/label_audit.py}"
 [ -f "$LABEL_AUDIT" ] || LABEL_AUDIT="$HOME/.claude/skills/session-handoff/scripts/label_audit.py"
+[ -f "$LABEL_AUDIT" ] || LABEL_AUDIT="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+    -path '*/session-handoff/*/scripts/label_audit.py' 2>/dev/null \
+  | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
 
 python3 "$LABEL_AUDIT" docs/handoffs/session_N_handoff.md
 ```
@@ -522,6 +528,9 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
       # Resolve the bundled script — plugin install first, then git-clone install:
       SFA="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/skill_freshness_audit.py}"
       [ -f "$SFA" ] || SFA="$HOME/.claude/skills/session-handoff/scripts/skill_freshness_audit.py"
+      [ -f "$SFA" ] || SFA="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+          -path '*/session-handoff/*/scripts/skill_freshness_audit.py' 2>/dev/null \
+        | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
 
       # Guard the invocation. Without this, SFA holds a non-existent path and python3
       # exits 2 with "can't open file" — the graceful fallback below was unreachable.
@@ -613,7 +622,14 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     ```bash
     SM="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/session_metrics.py}"
     [ -f "$SM" ] || SM="$HOME/.claude/skills/session-handoff/scripts/session_metrics.py"
-    python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --print-summary
+    [ -f "$SM" ] || SM="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+        -path '*/session-handoff/*/scripts/session_metrics.py' 2>/dev/null \
+      | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
+    if [ -f "$SM" ]; then
+      python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --print-summary
+    else
+      echo "session metrics: not found — tried all three roots"
+    fi
     ```
 
     This script dedupes tokens by `message.id` (whole-file, keeping the max-output chunk) and

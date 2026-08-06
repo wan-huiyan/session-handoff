@@ -613,3 +613,35 @@ describe("skill_freshness_audit.py — duplicate installs are surfaced, not swal
     assert.equal(j.shadowed_duplicates.alpha.length, 1);
   });
 });
+
+describe("every bundled-script lookup checks all three roots", () => {
+  it("no CLAUDE_PLUGIN_ROOT chain stops at two roots", () => {
+    // v1.17.0 shipped with three of five lookups still two-root: Phase 0's label
+    // audit, 24b's freshness audit, and one session_metrics fence. On a plugin-scope
+    // machine CLAUDE_PLUGIN_ROOT is usually unset and ~/.claude/skills/session-handoff
+    // does not exist, so those steps silently skipped. Only step 24 and one 24c fence
+    // had been fixed. Nothing failed, which is why it shipped.
+    const offenders = [];
+    allBashFences().forEach((f, i) => {
+      for (const m of f.code.matchAll(/^\s*(\w+)="\$\{CLAUDE_PLUGIN_ROOT:\+/gm)) {
+        if (!/plugins\/cache/.test(f.code)) offenders.push(`fence #${i + 1}: $${m[1]}`);
+      }
+    });
+    assert.deepEqual(
+      [...new Set(offenders)],
+      [],
+      "add the plugin-cache root: a plugin install creates neither of the first two"
+    );
+  });
+
+  it("the three-root chains rank on the version segment", () => {
+    // $(NF-2) is the version dir for cache/<mkt>/<plugin>/<ver>/scripts/<script>.
+    // Ranking the whole path instead sorts by marketplace name.
+    allBashFences().forEach((f, i) => {
+      if (!/plugins\/cache/.test(f.code)) return;
+      if (!/-path\s+'\*\/session-handoff\//.test(f.code)) return;
+      assert.match(f.code, /NF-2/, `fence #${i + 1} must rank on the version segment`);
+      assert.match(f.code, /sort -V -k1,1/, `fence #${i + 1} must version-sort that key`);
+    });
+  });
+});
