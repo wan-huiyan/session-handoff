@@ -331,6 +331,21 @@ describe("Manifest consistency", () => {
     }
   }
 
+  // The README enumerates the bundled scripts. Nothing tied that list to the directory,
+  // so a newly added script drifted out of the docs silently.
+  const scriptsDir = resolve(ROOT, "plugins/session-handoff/scripts");
+  if (existsSync(scriptsDir) && existsSync(resolve(ROOT, "README.md"))) {
+    const readmeText = readFileSync(resolve(ROOT, "README.md"), "utf-8");
+    describe("README bundled-scripts list", () => {
+      it("names every script that actually ships", () => {
+        const missing = readdirSync(scriptsDir)
+          .filter((f) => /\.(py|sh)$/.test(f))
+          .filter((f) => !readmeText.includes(f));
+        assert.deepEqual(missing, [], "README must name every file in plugins/session-handoff/scripts/");
+      });
+    });
+  }
+
   if (files.rootSkillMd) {
     describe("SKILL.md", () => {
       it("has YAML frontmatter with name", () => {

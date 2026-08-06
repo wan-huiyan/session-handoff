@@ -463,37 +463,42 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     - Lessons added outside a hooked Edit (e.g., via in-memory batch)
     - Consolidated reports surfaced in the handoff doc itself
 
-    ```bash
-    # reverse_lint.py ships in a SEPARATE plugin (doc-freshness-reverse-lint), so
-    # CLAUDE_PLUGIN_ROOT — which points at session-handoff's OWN root — cannot reach it.
-    # resolve_dep.sh checks both install roots. See scripts/resolve_dep.sh for why.
-    RESOLVE="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/resolve_dep.sh}"
-    [ -f "$RESOLVE" ] || RESOLVE="$HOME/.claude/skills/session-handoff/scripts/resolve_dep.sh"
+    The logic is a bundled script, not a snippet here, so it can be executed and tested.
+    See `scripts/reverse_lint_step.sh` — while it lived in this file as a fenced block it
+    carried two undetected defects that both reported themselves as "clean".
 
-    # BASE must be a REAL commit-ish — the SHA this session started from. Substitute it.
-    # "HEAD~N" is a placeholder, NOT a revision: git exits 128, the loop below runs zero
-    # times, and zero iterations then get reported as "clean". Do not ship it literally.
+    ```bash
+    # THE BOOTSTRAP NEEDS ALL THREE ROOTS. A plugin-scope install creates neither of the
+    # first two: CLAUDE_PLUGIN_ROOT is often unset in the shell a step runs in, and
+    # ~/.claude/skills/session-handoff/ does not exist at all — the plugin lives under
+    # ~/.claude/plugins/cache/<marketplace>/session-handoff/<version>/. Checking only the
+    # first two is the same defect this release fixes one level down, so do not trim it.
+    FOS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/find_own_script.sh}"
+    [ -f "$FOS" ] || FOS="$HOME/.claude/skills/session-handoff/scripts/find_own_script.sh"
+    [ -f "$FOS" ] || FOS="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+        -path '*/session-handoff/*/scripts/find_own_script.sh' 2>/dev/null \
+      | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
+
+    # BASE is the SHA this session started from. Substitute a real one. "HEAD~N" is a
+    # placeholder, not a revision — the script reports SKIPPED rather than scanning
+    # nothing and calling it clean.
     BASE="${SESSION_BASE_SHA:-$(git rev-parse --verify --quiet HEAD~1 || git rev-parse --verify HEAD)}"
 
-    DEP=doc-freshness-reverse-lint
-    if ! RL="$HOME/.claude/skills/${DEP}/scripts/reverse_lint.py"; [ -f "$RL" ]; then
-      echo "reverse-lint: SKIPPED — resolver printed the roots it tried above"
-    elif ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
-      echo "reverse-lint: SKIPPED — BASE '$BASE' is not a revision (did you leave HEAD~N literal?)"
+    if [ ! -f "$FOS" ]; then
+      echo "reverse-lint: SKIPPED — find_own_script.sh not found at any of the three roots"
+    elif ! STEP="$(sh "$FOS" reverse_lint_step.sh)"; then
+      echo "reverse-lint: SKIPPED — $STEP"
     else
-      # Committed this session, plus anything still dirty in the worktree: a lessons.md
-      # edited but not yet committed is exactly the case this step exists to catch.
-      { git diff -z --name-only "$BASE"..HEAD; git diff -z --name-only; } \
-        | grep -zE '(lessons|axioms|feedback_.*)\.md$' \
-        | sort -zu \
-        | while IFS= read -r -d '' memfile; do
-            [ -f "$memfile" ] && python3 "$RL" "$memfile" --project-root "$(pwd)" --human
-          done
+      sh "$STEP" "$BASE"
     fi
     ```
 
+    The script prints exactly one status line, always, in one of three shapes:
+    `reverse-lint: clean (N file(s) scanned)` · `reverse-lint: N candidate(s) — see output
+    above` · `reverse-lint: SKIPPED — <reason>`. Copy that line into the summary table.
+
     **Wire behavior:**
-    - Zero candidates → exit silent, mention "reverse-lint: clean" in the summary table
+    - Zero candidates but N ≥ 1 scanned → "clean (N file(s) scanned)" in the summary table
     - ≥1 candidate → add a **"Stale docs to review"** section to `session_N_handoff.md` with
       `file:line` references and the triggering rule. **Never auto-edit** the flagged docs; the
       human decides what to update.
@@ -511,7 +516,9 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     # here if you are running this block on its own rather than straight after step 24.
     BASE="${BASE:-${SESSION_BASE_SHA:-$(git rev-parse --verify --quiet HEAD~1 || git rev-parse --verify HEAD)}}"
 
-    if git diff --name-only "$BASE"..HEAD | grep -q 'skills/.*/SKILL\.md$'; then
+    if ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
+      echo "skill-freshness: SKIPPED — BASE '$BASE' is not a revision"
+    elif git diff --name-only "$BASE"..HEAD | grep -qE '(^|/)SKILL\.md$'; then
       # Resolve the bundled script — plugin install first, then git-clone install:
       SFA="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/skill_freshness_audit.py}"
       [ -f "$SFA" ] || SFA="$HOME/.claude/skills/session-handoff/scripts/skill_freshness_audit.py"
@@ -953,7 +960,7 @@ the session didn't touch — don't fabricate entries.
 | **Prompt cold-start check (step 25b)** | **REQUIRED — "reads standalone: context section + verified paths + owner-only section", or "no prompt: <reason>"** |
 | Git status | All committed and pushed |
 
-> **Four rows are NOT blankable — the usage record, the two closing checks, and the reverse-lint.**
+> **Five rows are NOT blankable — the usage record, the next-session prompt PATH, the two closing checks, and the reverse-lint.**
 > The reverse-lint row joined them on 2026-08-06: the step had been dead on every plugin-scope
 > install (wrong root) *and* on every install (a literal `HEAD~N` scanned zero files), yet the
 > table only offered "Clean / N candidates" — so a step that never ran was written up as clean.

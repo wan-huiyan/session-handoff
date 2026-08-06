@@ -37,7 +37,13 @@ fi
 
 PLUGIN="$1"
 RELPATH="$2"
-: "${HOME:?HOME must be set}"
+
+# Explicit, so the status is ours rather than the shell's: `${HOME:?}` aborts with
+# 1 under bash and 2 under dash, and dash is /bin/sh on the Linux CI runner.
+if [ -z "${HOME:-}" ]; then
+  echo "resolve_dep.sh: HOME must be set" >&2
+  exit 2
+fi
 
 PERSONAL="$HOME/.claude/skills/$PLUGIN/$RELPATH"
 CACHE_ROOT="$HOME/.claude/plugins/cache"
@@ -53,13 +59,28 @@ fi
 #    Emit "<version>\t<path>" per candidate, version-sort on field 1, take the max.
 BEST=""
 if [ -d "$CACHE_ROOT" ]; then
+  # -L so a symlinked marketplace/plugin/version segment is still seen: pointing the
+  # cache at a local checkout of a dependency is an ordinary thing to do while testing,
+  # and without -L that install resolves as "not found".
   BEST=$(
-    find "$CACHE_ROOT" -mindepth 3 -maxdepth 3 -type d 2>/dev/null |
+    find -L "$CACHE_ROOT" -mindepth 3 -maxdepth 3 -type d 2>/dev/null |
     while IFS= read -r vdir; do
       parent=${vdir%/*}
       [ "${parent##*/}" = "$PLUGIN" ] || continue
       [ -f "$vdir/$RELPATH" ] || continue
-      printf '%s\t%s\n' "${vdir##*/}" "$vdir/$RELPATH"
+      # Rank digit first so a non-numeric directory ("main", "dev") cannot outrank a
+      # release: sort -V puts leading-alphabetic keys AFTER numeric ones, which would
+      # otherwise hand the caller an in-development script with no signal. A leading
+      # "v" is stripped so the common v1.3.0 tag convention sorts with its peers.
+      ver=${vdir##*/}
+      key=${ver#v}
+      # Leading '(' balances the parens for the $( ) parser; bash rejects the bare
+      # "[0-9]*)" form inside a command substitution.
+      case $key in
+        ([0-9]*) rank=1 ;;
+        (*)      rank=0 ;;
+      esac
+      printf '%s%s\t%s\n' "$rank" "$key" "$vdir/$RELPATH"
     done |
     sort -V -k1,1 |
     tail -1 |

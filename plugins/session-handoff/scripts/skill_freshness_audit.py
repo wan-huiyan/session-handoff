@@ -47,28 +47,77 @@ def _version_key(text):
     return tuple(int(p) if p.isdigit() else -1 for p in re.split(r"[._-]", text))
 
 
-def discover_skill_mds(roots):
+def _personal_skill_mds(root):
+    """Layouts found under a personal/git-clone root.
+
+    <root>/<skill>/SKILL.md              — the plain personal install
+    <root>/<repo>/skills/<skill>/SKILL.md
+    <root>/<repo>/plugins/<plugin>/SKILL.md
+    <root>/<repo>/plugins/<plugin>/skills/<skill>/SKILL.md
+
+    A git clone holds many skills. Keying those on the parent directory would collapse
+    them all onto the literal string "skills" or "plugins" and drop every one but the
+    alphabetically first, so each is keyed on the directory that actually names it.
+    """
+    for pattern in ("*/SKILL.md",
+                    "*/skills/*/SKILL.md",
+                    "*/plugins/*/SKILL.md",
+                    "*/plugins/*/skills/*/SKILL.md"):
+        for skill_md in sorted(root.glob(pattern)):
+            yield skill_md.parent.name, skill_md
+
+
+def _cache_skill_mds(root):
+    """Layouts found under ~/.claude/plugins/cache.
+
+    <mkt>/<plugin>/<ver>/SKILL.md                  — single-skill plugin
+    <mkt>/<plugin>/<ver>/skills/<skill>/SKILL.md   — multi-skill plugin (the common one)
+
+    Only the first was matched before, which on a real machine is a small minority of
+    installed skills; the rest were silently unaudited and the empty result read as clean.
+    """
+    for skill_md in sorted(root.glob("*/*/*/SKILL.md")):
+        # <mkt>/<plugin>/<ver>/SKILL.md — the skill is named by the PLUGIN dir; keying
+        # on skill_md.parent here would key on the version ("9.9.9") and never collide
+        # with the same skill installed elsewhere.
+        version_dir = skill_md.parent
+        yield version_dir.parent.name, _version_key(version_dir.name), skill_md
+    for skill_md in sorted(root.glob("*/*/*/skills/*/SKILL.md")):
+        # <mkt>/<plugin>/<ver>/skills/<skill>/SKILL.md — here the leaf names the skill.
+        version_dir = skill_md.parents[2]
+        yield skill_md.parent.name, _version_key(version_dir.name), skill_md
+
+
+def discover_skill_mds(roots, layouts=None):
     """Every SKILL.md under the given roots, one per skill name.
 
-    Personal-scope wins over the plugin cache (it is what a developer has checked
-    out); within the cache the highest version wins.
+    Personal-scope wins over the plugin cache (it is what a developer has checked out);
+    within the cache the highest version wins.
     """
     best = {}  # skill name -> (rank, version_key, path)
-    for root in roots:
-        # Personal layout: <root>/<skill>/SKILL.md
-        for skill_md in sorted(root.glob("*/SKILL.md")):
-            name = skill_md.parent.name
-            cand = (2, (), skill_md)
-            if name not in best or cand[:2] > best[name][:2]:
-                best[name] = cand
-        # Plugin-cache layout: <root>/<marketplace>/<plugin>/<version>/SKILL.md
-        for skill_md in sorted(root.glob("*/*/*/SKILL.md")):
-            version_dir = skill_md.parent
-            name = version_dir.parent.name
-            cand = (1, _version_key(version_dir.name), skill_md)
-            if name not in best or cand[:2] > best[name][:2]:
-                best[name] = cand
-    return [best[n][2] for n in sorted(best)]
+
+    def offer(name, rank, version_key, path):
+        # Skip fixture trees, which are test data rather than installed skills.
+        if "tests/fixtures" in str(path).replace("\\", "/"):
+            return
+        cand = (rank, version_key)
+        if name not in best or cand > best[name][0]:
+            best[name] = (cand, path)
+
+    for root, layout in zip(roots, layouts or _layouts_for(roots)):
+        if layout == "personal":
+            for name, path in _personal_skill_mds(root):
+                offer(name, 2, (), path)
+        else:
+            for name, vkey, path in _cache_skill_mds(root):
+                offer(name, 1, vkey, path)
+
+    return [best[n][1] for n in sorted(best)]
+
+
+def _layouts_for(roots):
+    """Tag each root by shape, so a cache-shaped glob is never run on a personal root."""
+    return ["cache" if r.name == "cache" else "personal" for r in roots]
 
 
 def parse_frontmatter(text):

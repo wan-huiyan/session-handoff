@@ -277,3 +277,197 @@ describe("SKILL.md — step 24 lint", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Round-two coverage. Everything below exists because a review found the guard
+// above insufficient: the resolver was correct while the code that FINDS the
+// resolver had the identical single-root bug, and the step-24 fence — the thing
+// that actually ships to the model — was still only regex-checked.
+// ---------------------------------------------------------------------------
+
+const FIND_OWN = resolve(PLUGIN_DIR, "scripts/find_own_script.sh");
+const OWN_SCRIPTS = ["find_own_script.sh", "resolve_dep.sh", "reverse_lint_step.sh"];
+
+/** A $HOME where session-handoff exists ONLY in the plugin cache. */
+function pluginOnlyHome(label, { dep = true, depVersion = "1.3.0" } = {}) {
+  const home = join(TMP, label);
+  const own = join(home, ".claude/plugins/cache/mkt/session-handoff/1.17.0/scripts");
+  mkdirSync(own, { recursive: true });
+  for (const f of OWN_SCRIPTS) writeFileSync(join(own, f), readFileSync(resolve(PLUGIN_DIR, "scripts", f)));
+  if (dep) {
+    const d = join(home, ".claude/plugins/cache/mkt/doc-freshness-reverse-lint", depVersion, "scripts");
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "reverse_lint.py"), 'import sys\nprint("SENTINEL", sys.argv[1])\n');
+  }
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  return home;
+}
+
+function runFence(home, cwd, base) {
+  const f = join(TMP, `fence-${Math.abs(home.length * 7 + (base || "").length)}.sh`);
+  writeFileSync(f, step24Fence());
+  const env = { ...process.env, HOME: home };
+  delete env.CLAUDE_PLUGIN_ROOT;
+  if (base) env.SESSION_BASE_SHA = base;
+  const r = spawnSync("bash", [f], { env, cwd, encoding: "utf-8" });
+  return { out: (r.stdout || "").trim(), err: (r.stderr || "").trim(), status: r.status };
+}
+
+describe("find_own_script.sh — the bootstrap that had the same bug", () => {
+  it("finds a bundled script in the PLUGIN CACHE with CLAUDE_PLUGIN_ROOT unset and no personal root", () => {
+    // This is the case that made the whole fix a no-op on the reporter's own machine.
+    const home = pluginOnlyHome("bootstrap-cache");
+    const env = { ...process.env, HOME: home };
+    delete env.CLAUDE_PLUGIN_ROOT;
+    const r = spawnSync("sh", [FIND_OWN, "resolve_dep.sh"], { env, encoding: "utf-8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout.trim(), /plugins\/cache\/mkt\/session-handoff\/1\.17\.0\/scripts\/resolve_dep\.sh$/);
+  });
+
+  it("names all three roots when it finds nothing", () => {
+    const home = join(TMP, "bootstrap-empty");
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const env = { ...process.env, HOME: home };
+    delete env.CLAUDE_PLUGIN_ROOT;
+    const r = spawnSync("sh", [FIND_OWN, "resolve_dep.sh"], { env, encoding: "utf-8" });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /CLAUDE_PLUGIN_ROOT/);
+    assert.match(r.stderr, /\.claude\/skills\/session-handoff/);
+    assert.match(r.stderr, /\.claude\/plugins\/cache/);
+  });
+});
+
+describe("SKILL.md step 24 fence — executed, not just parsed", () => {
+  it("runs end to end on a plugin-only install and reports a status line", () => {
+    const home = pluginOnlyHome("fence-ok");
+    const r = runFence(home, ROOT);
+    assert.match(r.out, /^reverse-lint: /m, `fence produced no status line. stderr: ${r.err}`);
+  });
+
+  it("says SKIPPED — never clean — when the dependency is absent", () => {
+    const home = pluginOnlyHome("fence-nodep", { dep: false });
+    const r = runFence(home, ROOT);
+    assert.match(r.out, /reverse-lint: SKIPPED/);
+    assert.doesNotMatch(r.out, /reverse-lint: clean/);
+  });
+
+  it("actually invokes reverse_lint.py on a changed lessons file", () => {
+    // A real git repo with a lessons.md edit, so the scan has something to find.
+    const repo = join(TMP, "fence-repo");
+    mkdirSync(repo, { recursive: true });
+    const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf-8" });
+    git("init", "-q");
+    git("config", "user.email", "t@e.st");
+    git("config", "user.name", "t");
+    writeFileSync(join(repo, "seed.txt"), "seed\n");
+    git("add", "-A");
+    git("commit", "-qm", "seed");
+    const base = git("rev-parse", "HEAD").stdout.trim();
+    writeFileSync(join(repo, "lessons.md"), "# lessons\n");
+    const r = runFence(pluginOnlyHome("fence-scan"), repo, base);
+    assert.match(r.out, /SENTINEL/, `stub lint never ran. out=${r.out} err=${r.err}`);
+    assert.match(r.out, /reverse-lint: (clean \(1 file|1 candidate)/);
+  });
+
+  it("reports SKIPPED, not clean, when BASE is not a revision", () => {
+    const r = runFence(pluginOnlyHome("fence-badbase"), ROOT, "HEAD~N");
+    assert.match(r.out, /reverse-lint: SKIPPED/);
+    assert.doesNotMatch(r.out, /clean/);
+  });
+
+  it("the fence calls the bundled step script rather than reimplementing it", () => {
+    assert.match(step24Fence(), /find_own_script\.sh/, "must bootstrap via find_own_script.sh");
+    assert.match(step24Fence(), /reverse_lint_step\.sh/, "must delegate to the bundled step script");
+  });
+
+  it("the bootstrap checks the plugin-cache root, not just the first two", () => {
+    assert.match(
+      step24Fence(),
+      /plugins\/cache[\s\S]{0,200}session-handoff/,
+      "a plugin install creates neither CLAUDE_PLUGIN_ROOT nor ~/.claude/skills/session-handoff"
+    );
+  });
+});
+
+describe("resolve_dep.sh — round-two hardening", () => {
+  it("does not resolve a lookalike or fork of the requested plugin", () => {
+    const home = fakeHome("fork", { cached: [["mkt", "dep-fork", "1.0.0"], ["mkt", "x-dep", "1.0.0"]] });
+    assert.equal(runResolver(home).status, 1, "substring matching would run a fork as the dependency");
+  });
+
+  it("a non-semver version directory does not outrank a release", () => {
+    const home = fakeHome("nonsemver", { cached: [["mkt", "dep", "1.10.0"], ["mkt", "dep", "main"]] });
+    const r = runResolver(home);
+    assert.equal(r.status, 0, r.err);
+    assert.match(r.out, /\/1\.10\.0\//, '"main" sorts after digits under sort -V and would win');
+  });
+
+  it("a v-prefixed tag sorts with its numeric peers", () => {
+    const home = fakeHome("vprefix", { cached: [["mkt", "dep", "v2.0.0"], ["mkt", "dep", "1.10.0"]] });
+    assert.match(runResolver(home).out, /\/v2\.0\.0\//);
+  });
+
+  it("a partial personal install falls through to the cache instead of returning a missing path", () => {
+    const home = fakeHome("partial", { cached: [["mkt", "dep", "1.0.0"]] });
+    mkdirSync(join(home, ".claude/skills/dep/scripts"), { recursive: true });
+    writeFileSync(join(home, ".claude/skills/dep/README.md"), "no script here\n");
+    const r = runResolver(home);
+    assert.equal(r.status, 0, r.err);
+    assert.ok(existsSync(r.out), "a resolved path must exist on disk");
+    assert.match(r.out, /plugins\/cache\//);
+  });
+
+  it("every successful resolution returns a path that exists", () => {
+    const home = fakeHome("exists", { cached: [["mkt", "dep", "1.0.0"]] });
+    assert.ok(existsSync(runResolver(home).out));
+  });
+});
+
+describe("skill_freshness_audit.py — layouts the first pass missed", () => {
+  function auditHome(label, entries) {
+    const home = join(TMP, label);
+    for (const [rel, name] of entries) {
+      const p = join(home, rel);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, `---\nname: ${name}\ndescription: d\n---\n`);
+    }
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    return home;
+  }
+  const auditJson = (home) => {
+    const r = spawnSync("python3", [AUDIT, "--json"], { env: { ...process.env, HOME: home }, encoding: "utf-8" });
+    try { return JSON.parse(r.stdout); } catch { throw new Error(`bad JSON. stderr=${r.stderr}`); }
+  };
+
+  it("sees a multi-skill plugin's nested skills/<name>/SKILL.md — the dominant real layout", () => {
+    const j = auditJson(auditHome("nested", [
+      [".claude/plugins/cache/mkt/bundle/1.0.0/skills/alpha/SKILL.md", "alpha"],
+      [".claude/plugins/cache/mkt/bundle/1.0.0/skills/beta/SKILL.md", "beta"],
+    ]));
+    assert.deepEqual(j.skills.map((s) => s.name).sort(), ["alpha", "beta"]);
+  });
+
+  it("personal scope shadows the cache for the same skill name", () => {
+    const j = auditJson(auditHome("precedence", [
+      [".claude/skills/alpha/SKILL.md", "alpha"],
+      [".claude/plugins/cache/mkt/alpha/9.9.9/SKILL.md", "alpha"],
+    ]));
+    assert.equal(j.skills.length, 1, "the same skill at both roots must dedupe to one");
+    assert.match(j.skills[0].path, /\.claude\/skills\/alpha\//, "the developer's checkout must win");
+  });
+
+  it("a git-clone personal root does not collapse its skills onto one key", () => {
+    const j = auditJson(auditHome("clone", [
+      [".claude/skills/myrepo/skills/one/SKILL.md", "one"],
+      [".claude/skills/myrepo/skills/two/SKILL.md", "two"],
+      [".claude/skills/myrepo/skills/three/SKILL.md", "three"],
+    ]));
+    assert.deepEqual(j.skills.map((s) => s.name).sort(), ["one", "three", "two"]);
+  });
+
+  it("finds skills when ONLY the personal root exists", () => {
+    const j = auditJson(auditHome("personal-only", [[".claude/skills/alpha/SKILL.md", "alpha"]]));
+    assert.equal(j.skills.length, 1);
+    assert.ok(j.skill_roots.some((r) => r.endsWith("/skills")), "the personal root must be reported");
+  });
+});
