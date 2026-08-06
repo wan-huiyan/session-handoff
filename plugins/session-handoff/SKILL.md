@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.15.0
+version: 1.16.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -715,6 +715,46 @@ MD
 
 26. **Final confirmation** to user: list all artifacts produced, grouped by bucket
 
+26a. **Emit the next-session prompt's PATH as a copy-pasteable block — not as prose.**
+
+    The user's next action after reading your summary is to open a fresh session and
+    point it at the prompt. If the only mention of that prompt is a prose phrase like
+    *"the S386 next-session prompt"* or *"see the next-session prompt"*, they cannot do
+    that without going back and grepping `docs/handoffs/` for a filename you already
+    knew. This is a **hard requirement**, not a nicety — a prompt that exists but is
+    unreachable is a prompt that did not get written.
+
+    Close the summary with a fenced block containing the **repo-relative path**, alone,
+    so it can be selected and pasted in one action:
+
+    ```
+    docs/handoffs/2026-08-06-s386-next-session-prompt-deferred-recuts.md
+    ```
+
+    Rules:
+    - **Fenced block, on its own.** Not inline backticks inside a sentence, not a
+      markdown link, not a table cell — those are all harder to select cleanly on
+      mobile, which is where handoffs are most often read.
+    - **Repo-relative**, exactly as it would be typed to a fresh session. Not the
+      absolute worktree path (which is wrong in any other checkout), not the bare
+      filename (which is not openable).
+    - **Verify it resolves before you print it** — `ls <path>` — and, if the session
+      committed it, that the commit landed (`git log --oneline -1 -- <path>`). Printing
+      a path that 404s is worse than printing none.
+    - **More than one prompt?** Print the primary first, labelled, then the parallel
+      ones, each in its own block, and say in one line which to start with and why.
+    - **No prompt written?** Print, in the same slot, the reason —
+      `no next-session prompt — stream closed, no recommended next action` — so the
+      absence reads as deliberate rather than forgotten.
+
+    Suggested framing (adapt the wording, keep the shape):
+
+    > **Start your next session with:**
+    >
+    > ```
+    > docs/handoffs/<the-file>.md
+    > ```
+
 ### Phase 5: Consolidate (when 3+ handoffs exist)
 
 This phase runs automatically when 3+ handoff docs are detected, or when the user
@@ -859,6 +899,7 @@ the session didn't touch — don't fabricate entries.
 | `docs/reviews/` | N new/updated — or "—" |
 | **Review findings (P0/P1/P2 caught + reviewer)** | **N findings (n fixed / n documented / n rejected) — table in handoff §7 + usage record; or "— (no review ran)"** |
 | `docs/handoffs/` | `session_N_handoff.md` (always) + the next-session prompt **written or REFRESHED** — naming which, and never just cited (else note "no next-session prompt — stream closed") (+ parallel prompts if any) |
+| **Next-session prompt PATH (step 26a)** | **REQUIRED and NOT blankable — the repo-relative path in its own fenced block, `ls`-verified, so the user can paste it into a fresh session in one action. A prose reference ("the S386 prompt") does NOT satisfy this. If no prompt was written, print the reason in this slot instead.** |
 | `docs/deliverables/` | N new artifacts — or "—" |
 | `docs/plans/future_sessions_plan.md` | Updated / consolidated (if Phase 5) |
 | **Project tracker / ledger (step 14)** | **ALL parts of its own ritual + validator green — or explicit "— (no tracker in this repo)". Name the parts that outlive the wrap-up: PR chip pending merge, successor task filed** |
@@ -895,6 +936,11 @@ the session didn't touch — don't fabricate entries.
 - **Don't hardcode test counts or line counts** — they go stale immediately; use "as of PR #N" instead
 - **Don't skip the lessons scan** — debugging patterns are the most valuable long-term knowledge
 - **Don't write "see above" in next-session prompts** — they must be paste-ready with full context
+- **Don't refer to the next-session prompt only by nickname.** "The S386 prompt", "the next-session
+  prompt", "see the handoff" — none of these is openable. The user's next action is to paste a path
+  into a fresh session; if your summary doesn't contain that path in a selectable block, you have
+  made them grep `docs/handoffs/` for a filename you already knew. **Naming a prompt is not
+  delivering it** (step 26a)
 
 ## Tips
 
