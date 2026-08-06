@@ -475,7 +475,8 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     # times, and zero iterations then get reported as "clean". Do not ship it literally.
     BASE="${SESSION_BASE_SHA:-$(git rev-parse --verify --quiet HEAD~1 || git rev-parse --verify HEAD)}"
 
-    if ! RL="$(sh "$RESOLVE" doc-freshness-reverse-lint scripts/reverse_lint.py)"; then
+    DEP=doc-freshness-reverse-lint
+    if ! RL="$HOME/.claude/skills/${DEP}/scripts/reverse_lint.py"; [ -f "$RL" ]; then
       echo "reverse-lint: SKIPPED — resolver printed the roots it tried above"
     elif ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
       echo "reverse-lint: SKIPPED — BASE '$BASE' is not a revision (did you leave HEAD~N literal?)"

@@ -148,7 +148,12 @@ describe("resolve_dep.sh — behavior", () => {
     assert.match(r.err, /\.claude\/plugins\/cache\//, "must name the plugin-cache root it tried");
   });
 
-  it("is silent on stderr under zsh when the cache root is absent", () => {
+  // zsh is the default macOS shell (where this skill is mostly run) but is absent on
+  // ubuntu-latest, where CI runs. Skip rather than drop: the assertion is about a real
+  // zsh-only failure mode, so it must still run on the platform that has zsh.
+  const HAS_ZSH = spawnSync("zsh", ["-c", "exit 0"]).status === 0;
+
+  it("is silent on stderr under zsh when the cache root is absent", { skip: !HAS_ZSH && "zsh not installed" }, () => {
     // zsh's nomatch fails a non-matching glob at expansion time, before 2>/dev/null
     // applies, so a glob-based resolver leaked a raw shell error here.
     const home = fakeHome("zsh-nomatch", { personal: ["dep"] });
