@@ -31,6 +31,10 @@ const SCRIPT_NAMES = [
   "sessionstart_handoff_context.py",
 ];
 
+// resolve_dep.sh is a shell script with a positional contract rather than argparse,
+// so it is exercised behaviorally in tests/dependency-path-resolution.test.mjs
+// instead of by the `--help` smoke check below.
+
 function runPy(script, args = [], options = {}) {
   return spawnSync("python3", [resolve(SCRIPTS, script), ...args], {
     encoding: "utf-8",

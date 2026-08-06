@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Skill freshness audit (session-handoff step 24b).
 
-Scans installed skills (`<skills-dir>/*/SKILL.md`) and reports, per skill:
+Scans installed skills at BOTH install roots (~/.claude/skills/*/SKILL.md and
+~/.claude/plugins/cache/*/*/*/SKILL.md) and reports, per skill:
 
   - age: days since the frontmatter `last_verified` date if declared,
     otherwise days since the SKILL.md file was last modified
@@ -15,8 +16,8 @@ Scans installed skills (`<skills-dir>/*/SKILL.md`) and reports, per skill:
 Never auto-bumps `last_verified` — this is a surface-for-human-review tool.
 Flagged skills belong in the handoff doc's "Stale docs to review" section.
 
-Exit codes: 0 nothing flagged, 1 at least one skill flagged, 2 skills dir
-not found.
+Exit codes: 0 nothing flagged, 1 at least one skill flagged, 2 no skill
+root found at either install location.
 """
 
 import argparse
@@ -27,6 +28,47 @@ import sys
 from pathlib import Path
 
 DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+
+def default_skill_roots():
+    """Both roots a skill can be installed under.
+
+    A skill installed as a PLUGIN never appears under ~/.claude/skills; it lives at
+    ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/. Scanning only the first
+    root made this audit report zero skills — written up as "clean" — for anyone whose
+    skills are all plugin-scope.
+    """
+    base = Path.home() / ".claude"
+    return [base / "skills", base / "plugins" / "cache"]
+
+
+def _version_key(text):
+    """Sort key for a version directory name; non-numeric parts sort lowest."""
+    return tuple(int(p) if p.isdigit() else -1 for p in re.split(r"[._-]", text))
+
+
+def discover_skill_mds(roots):
+    """Every SKILL.md under the given roots, one per skill name.
+
+    Personal-scope wins over the plugin cache (it is what a developer has checked
+    out); within the cache the highest version wins.
+    """
+    best = {}  # skill name -> (rank, version_key, path)
+    for root in roots:
+        # Personal layout: <root>/<skill>/SKILL.md
+        for skill_md in sorted(root.glob("*/SKILL.md")):
+            name = skill_md.parent.name
+            cand = (2, (), skill_md)
+            if name not in best or cand[:2] > best[name][:2]:
+                best[name] = cand
+        # Plugin-cache layout: <root>/<marketplace>/<plugin>/<version>/SKILL.md
+        for skill_md in sorted(root.glob("*/*/*/SKILL.md")):
+            version_dir = skill_md.parent
+            name = version_dir.parent.name
+            cand = (1, _version_key(version_dir.name), skill_md)
+            if name not in best or cand[:2] > best[name][:2]:
+                best[name] = cand
+    return [best[n][2] for n in sorted(best)]
 
 
 def parse_frontmatter(text):
@@ -103,13 +145,13 @@ def main(argv=None):
             "Surfaces candidates for human review — never auto-bumps "
             "last_verified."
         ),
-        epilog="Exit codes: 0 clean, 1 skills flagged, 2 skills dir not found.",
+        epilog="Exit codes: 0 clean, 1 skills flagged, 2 no skill root found.",
     )
     parser.add_argument(
-        "--skills-dir", type=Path,
-        default=Path.home() / ".claude" / "skills",
-        help="directory containing <skill>/SKILL.md trees "
-             "(default: ~/.claude/skills)",
+        "--skills-dir", type=Path, action="append", dest="skills_dirs",
+        metavar="DIR",
+        help="directory containing <skill>/SKILL.md trees. Repeatable. "
+             "Default: both install roots (~/.claude/skills and the plugin cache).",
     )
     parser.add_argument(
         "--stale-days", type=int, default=90, metavar="N",
@@ -125,14 +167,20 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    if not args.skills_dir.is_dir():
-        print(f"skill_freshness_audit: skills dir not found: {args.skills_dir}",
-              file=sys.stderr)
+    roots = args.skills_dirs or default_skill_roots()
+    present = [d for d in roots if d.is_dir()]
+
+    if not present:
+        # A missing root is a skipped root, not a fatal error: a plugin-scope-only
+        # user has no ~/.claude/skills at all, and exiting 2 there used to make the
+        # audit report nothing while the caller wrote up "clean".
+        print("skill_freshness_audit: no skill roots found — tried "
+              + ", ".join(str(d) for d in roots), file=sys.stderr)
         return 2
 
     today = datetime.date.today()
     results = []
-    for skill_md in sorted(args.skills_dir.glob("*/SKILL.md")):
+    for skill_md in discover_skill_mds(present):
         results.append(audit_skill(skill_md, args.stale_days, today))
 
     flagged = [r for r in results if r["flags"]]
@@ -140,7 +188,7 @@ def main(argv=None):
 
     if args.json:
         print(json.dumps({
-            "skills_dir": str(args.skills_dir),
+            "skill_roots": [str(d) for d in present],
             "stale_days_default": args.stale_days,
             "skills": results,
             "flagged_count": len(flagged),
@@ -149,10 +197,11 @@ def main(argv=None):
         return exit_code
 
     if not results:
-        print(f"No skills found under {args.skills_dir}")
+        print("No skills found under " + ", ".join(str(d) for d in present))
         return 0
 
-    print(f"Skill freshness audit — {len(results)} skill(s) under {args.skills_dir}")
+    print(f"Skill freshness audit — {len(results)} skill(s) under "
+          + ", ".join(str(d) for d in present))
     print(f"(default staleness window: {args.stale_days} days)\n")
     for r in results:
         marker = "FLAG " if r["flags"] else "ok   "
