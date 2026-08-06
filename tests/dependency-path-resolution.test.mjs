@@ -471,3 +471,59 @@ describe("skill_freshness_audit.py — layouts the first pass missed", () => {
     assert.ok(j.skill_roots.some((r) => r.endsWith("/skills")), "the personal root must be reported");
   });
 });
+
+// Gaps found by a mutation battery: each of these passed while a real defect was
+// injected, because the assertion checked that something skipped without checking WHY.
+describe("skip reasons are specific, not just present", () => {
+  it("a bad BASE skips FOR THAT REASON, not incidentally", () => {
+    const r = runFence(pluginOnlyHome("reason-base"), ROOT, "HEAD~N");
+    assert.match(r.out, /SKIPPED — BASE .* is not a revision/,
+      "deleting the revision guard also yields a SKIPPED line, for the wrong reason");
+  });
+
+  it("a missing dependency skips FOR THAT REASON and names the roots", () => {
+    const r = runFence(pluginOnlyHome("reason-dep", { dep: false }), ROOT);
+    assert.match(r.out, /SKIPPED/);
+    assert.match(r.out, /not found/, 'the resolver\'s "not found" must reach the status line');
+    assert.match(r.out, /\.claude\/plugins\/cache/, "and must carry the roots it tried");
+  });
+
+  it("find_own_script.sh says 'not found', never 'not installed'", () => {
+    const home = join(TMP, "own-wording");
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const env = { ...process.env, HOME: home };
+    delete env.CLAUDE_PLUGIN_ROOT;
+    const r = spawnSync("sh", [FIND_OWN, "resolve_dep.sh"], { env, encoding: "utf-8" });
+    assert.match(r.stderr, /not found/);
+    assert.doesNotMatch(r.stderr, /not installed/);
+  });
+
+  it("the bootstrap does not resolve a lookalike plugin directory", () => {
+    // cache/<mkt>/session-handoff-fork/<ver>/scripts/ must not satisfy a lookup for
+    // session-handoff: a substring match would execute a fork's script.
+    const home = join(TMP, "own-fork");
+    const d = join(home, ".claude/plugins/cache/mkt/session-handoff-fork/1.0.0/scripts");
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "resolve_dep.sh"), "#fork\n");
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const env = { ...process.env, HOME: home };
+    delete env.CLAUDE_PLUGIN_ROOT;
+    assert.equal(spawnSync("sh", [FIND_OWN, "resolve_dep.sh"], { env, encoding: "utf-8" }).status, 1);
+  });
+
+  it("a candidate file that vanished before the scan is SKIPPED, never clean", () => {
+    // FILES is non-empty (git listed it) but the file is gone by the time we read it.
+    const repo = join(TMP, "vanished-repo");
+    mkdirSync(repo, { recursive: true });
+    const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf-8" });
+    git("init", "-q"); git("config", "user.email", "t@e.st"); git("config", "user.name", "t");
+    writeFileSync(join(repo, "lessons.md"), "# l\n");
+    git("add", "-A"); git("commit", "-qm", "add lessons");
+    const base = git("rev-parse", "HEAD~0").stdout.trim();
+    git("rm", "-q", "lessons.md");           // listed in the diff, absent on disk
+    git("commit", "-qm", "remove lessons");
+    const r = runFence(pluginOnlyHome("vanished"), repo, base);
+    assert.doesNotMatch(r.out, /reverse-lint: clean/,
+      "zero files actually read must never be reported as clean");
+  });
+});
