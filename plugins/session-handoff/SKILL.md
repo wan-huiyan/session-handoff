@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.16.0
+version: 1.16.1
 triggers:
   - "wrap up"
   - "session handoff"
@@ -463,11 +463,24 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     - Consolidated reports surfaced in the handoff doc itself
 
     ```bash
-    # For each lessons.md / axioms.md / feedback_*.md touched this session:
-    for memfile in $(git diff --name-only HEAD~N..HEAD | grep -E '(lessons|axioms|feedback_.*)\.md$'); do
-      python3 ~/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py \
-        "$memfile" --project-root "$(pwd)" --human
-    done
+    # Resolve the reverse-lint script. It ships in a SEPARATE plugin
+    # (doc-freshness-reverse-lint@claude-ecosystem-hygiene), so CLAUDE_PLUGIN_ROOT — which
+    # points at session-handoff's OWN root — cannot reach it. Try the git-clone/personal-skills
+    # root first, then the plugin cache, taking the highest installed version.
+    RL="$HOME/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py"
+    [ -f "$RL" ] || RL="$(ls -1 "$HOME"/.claude/plugins/cache/*/doc-freshness-reverse-lint/*/scripts/reverse_lint.py \
+      2>/dev/null | sort -V | tail -1)"
+
+    if [ -n "$RL" ] && [ -f "$RL" ]; then
+      # For each lessons.md / axioms.md / feedback_*.md touched this session:
+      for memfile in $(git diff --name-only HEAD~N..HEAD | grep -E '(lessons|axioms|feedback_.*)\.md$'); do
+        python3 "$RL" "$memfile" --project-root "$(pwd)" --human
+      done
+    else
+      echo "doc-freshness-reverse-lint: not found — tried" \
+           "\$HOME/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py and" \
+           "\$HOME/.claude/plugins/cache/*/doc-freshness-reverse-lint/*/scripts/reverse_lint.py"
+    fi
     ```
 
     **Wire behavior:**
@@ -475,7 +488,10 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     - ≥1 candidate → add a **"Stale docs to review"** section to `session_N_handoff.md` with
       `file:line` references and the triggering rule. **Never auto-edit** the flagged docs; the
       human decides what to update.
-    - If `reverse_lint.py` is unavailable, log "doc-freshness-reverse-lint: not installed" and continue.
+    - If `reverse_lint.py` resolves at neither location, log the "not found" line **including the
+      paths tried** and continue. Never report a bare "not installed": the skill is frequently
+      installed as a plugin, and a message that omits the paths tried has repeatedly been misread
+      as proof of absence. Report the step as **skipped**, never as clean, in the summary table.
 
 24b. **Skill freshness audit** (per axiom #21) — if any `SKILL.md` was edited this session, run the freshness check:
 
@@ -1034,9 +1050,16 @@ ADRs, and optionally a consolidated plan. All files are committed and pushed.
 - Requires `git` for commit history and status
 - Requires `gh` CLI for PR status checks (gracefully degrades without it)
 - Works with any project structure that uses `docs/` and `memory/` directories (creates them if missing)
-- **Optional (recommended):** `doc-freshness-reverse-lint` skill at
-  `~/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py` — if absent, Phase 4 step 24
-  logs "not installed" and continues. Install from
+- **Optional (recommended):** the `doc-freshness-reverse-lint` skill. Phase 4 step 24 resolves its
+  `reverse_lint.py` at **two** locations, in order:
+  1. `$HOME/.claude/skills/doc-freshness-reverse-lint/scripts/reverse_lint.py` — git-clone or
+     personal-scope install
+  2. `$HOME/.claude/plugins/cache/*/doc-freshness-reverse-lint/*/scripts/reverse_lint.py` — plugin
+     install, highest version wins
+
+  Both are required, because a plugin install never creates the `~/.claude/skills/` path. Checking
+  only the first made an installed plugin report as missing. If neither resolves, step 24 logs the
+  paths it tried and continues. Install from
   `https://github.com/wan-huiyan/claude-ecosystem-hygiene/tree/main/plugins/doc-freshness-reverse-lint`.
 - **Taxonomy source of truth:** `memory-hygiene` v3.1+ defines the 7-bucket `docs/` taxonomy.
   Run `memory-hygiene` with `--migrate` if the target project's `docs/` has drifted from the taxonomy
