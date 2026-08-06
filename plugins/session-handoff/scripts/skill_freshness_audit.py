@@ -88,21 +88,31 @@ def _cache_skill_mds(root):
         yield skill_md.parent.name, _version_key(version_dir.name), skill_md
 
 
-def discover_skill_mds(roots, layouts=None):
+def discover_skill_mds(roots, layouts=None, shadowed_out=None):
     """Every SKILL.md under the given roots, one per skill name.
 
     Personal-scope wins over the plugin cache (it is what a developer has checked out);
     within the cache the highest version wins.
     """
-    best = {}  # skill name -> (rank, version_key, path)
+    best = {}       # skill name -> (rank, version_key, path)
+    shadowed = {}   # skill name -> [paths that lost]
 
     def offer(name, rank, version_key, path):
         # Skip fixture trees, which are test data rather than installed skills.
         if "tests/fixtures" in str(path).replace("\\", "/"):
             return
         cand = (rank, version_key)
-        if name not in best or cand > best[name][0]:
+        if name not in best:
             best[name] = (cand, path)
+            return
+        # A duplicate install is exactly the ambiguity a freshness audit should raise,
+        # so record the loser rather than discarding it silently. Ties keep the
+        # first-seen winner, which is why the tie case must still be recorded.
+        if cand > best[name][0]:
+            shadowed.setdefault(name, []).append(str(best[name][1]))
+            best[name] = (cand, path)
+        else:
+            shadowed.setdefault(name, []).append(str(path))
 
     for root, layout in zip(roots, layouts or _layouts_for(roots)):
         if layout == "personal":
@@ -112,6 +122,8 @@ def discover_skill_mds(roots, layouts=None):
             for name, vkey, path in _cache_skill_mds(root):
                 offer(name, 1, vkey, path)
 
+    if shadowed_out is not None:
+        shadowed_out.update(shadowed)
     return [best[n][1] for n in sorted(best)]
 
 
@@ -228,8 +240,9 @@ def main(argv=None):
         return 2
 
     today = datetime.date.today()
+    shadowed = {}
     results = []
-    for skill_md in discover_skill_mds(present):
+    for skill_md in discover_skill_mds(present, shadowed_out=shadowed):
         results.append(audit_skill(skill_md, args.stale_days, today))
 
     flagged = [r for r in results if r["flags"]]
@@ -238,6 +251,7 @@ def main(argv=None):
     if args.json:
         print(json.dumps({
             "skill_roots": [str(d) for d in present],
+            "shadowed_duplicates": shadowed,
             "stale_days_default": args.stale_days,
             "skills": results,
             "flagged_count": len(flagged),
@@ -251,7 +265,14 @@ def main(argv=None):
 
     print(f"Skill freshness audit — {len(results)} skill(s) under "
           + ", ".join(str(d) for d in present))
-    print(f"(default staleness window: {args.stale_days} days)\n")
+    print(f"(default staleness window: {args.stale_days} days)")
+    if shadowed:
+        print(f"\n{len(shadowed)} skill(s) installed more than once — the audit reports "
+              "the winning copy only:")
+        for name in sorted(shadowed):
+            for other in shadowed[name]:
+                print(f"  {name}: also at {other}")
+    print()
     for r in results:
         marker = "FLAG " if r["flags"] else "ok   "
         flags = f"  [{', '.join(r['flags'])}]" if r["flags"] else ""

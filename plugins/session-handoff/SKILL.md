@@ -558,10 +558,26 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
       # Fork not present → in-skill recompute (same message.id dedup + recursive
       # subagent accounting as the fork; tokens only, no cost math).
       # Resolve the bundled script — plugin install first, then git-clone install:
+      # Three roots, as everywhere else — a plugin install creates neither of the first two.
       SM="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/session_metrics.py}"
       [ -f "$SM" ] || SM="$HOME/.claude/skills/session-handoff/scripts/session_metrics.py"
-      python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --json > "$OUT.json"
-      python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --print-summary > "$OUT.md"
+      # Self-contained third root: $FOS belongs to step 24's fence, and fences do not
+      # reliably share a shell.
+      [ -f "$SM" ] || SM="$(find -L "$HOME/.claude/plugins/cache" -mindepth 5 -maxdepth 5 \
+          -path '*/session-handoff/*/scripts/session_metrics.py' 2>/dev/null \
+        | awk -F/ '{print $(NF-2)"\t"$0}' | sort -V -k1,1 | tail -1 | cut -f2-)"
+
+      # GUARD BEFORE REDIRECTING. `> "$OUT.json"` creates and truncates the file before
+      # python3 is even exec'd, so an unguarded call leaves a 0-byte record behind that
+      # reads as a written record to anything scanning the directory later.
+      if [ -n "$SM" ] && [ -f "$SM" ]; then
+        python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --json > "$OUT.json"
+        python3 "$SM" --session "$SID" --project=<slug-with-leading-dash> --print-summary > "$OUT.md"
+      else
+        echo "session metrics: not found — tried \$CLAUDE_PLUGIN_ROOT/scripts/," \
+             "\$HOME/.claude/skills/session-handoff/scripts/, and the plugin cache." \
+             "No usage record written; report the step as skipped."
+      fi
     fi
     ```
 

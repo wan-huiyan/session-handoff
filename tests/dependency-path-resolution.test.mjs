@@ -80,6 +80,24 @@ function step24Fence() {
   return skillMd.slice(fenceStart + 7, fenceEnd);
 }
 
+/** Every ```bash fence in SKILL.md, with comment lines stripped.
+ *  The lints used to look only at step 24's fence, so the plainest possible
+ *  reintroduction of a defect one step later — in 24b — was invisible. Comments are
+ *  stripped so a fence may still WARN about a pattern it must not USE. */
+function allBashFences() {
+  const out = [];
+  const re = /```bash\n([\s\S]*?)```/g;
+  let m;
+  while ((m = re.exec(skillMd)) !== null) {
+    out.push({
+      index: m.index,
+      raw: m[1],
+      code: m[1].replace(/^\s*#.*$/gm, ""),
+    });
+  }
+  return out;
+}
+
 describe("resolve_dep.sh — behavior", () => {
   it("the resolver exists and is executable as a script", () => {
     assert.ok(existsSync(RESOLVER), `expected ${RESOLVER}`);
@@ -525,5 +543,73 @@ describe("skip reasons are specific, not just present", () => {
     const r = runFence(pluginOnlyHome("vanished"), repo, base);
     assert.doesNotMatch(r.out, /reverse-lint: clean/,
       "zero files actually read must never be reported as clean");
+  });
+});
+
+// These lints cover EVERY bash fence, not just step 24's. Scoping them to one step
+// meant the plainest reintroduction of either defect, one step later, was invisible.
+describe("SKILL.md — lints across every fence", () => {
+  it("no fence uses HEAD~N as a revision, in any spelling", () => {
+    // Comment lines are stripped first, so a fence may still warn about HEAD~N while
+    // not using it. The previous pattern required `..` to follow immediately, so
+    // `"HEAD~N"..HEAD` — one pair of quotes — slipped straight through.
+    const offenders = allBashFences()
+      .map((f, i) => ({ i, hit: /HEAD~N/.test(f.code) }))
+      .filter((x) => x.hit)
+      .map((x) => `fence #${x.i + 1}`);
+    assert.deepEqual(offenders, [], "substitute a real base SHA; HEAD~N is not a revision");
+  });
+
+  it("no fence reaches another plugin through the ~/.claude/skills root", () => {
+    const offenders = [];
+    allBashFences().forEach((f, i) => {
+      for (const m of f.code.matchAll(/\.claude\/skills\/([a-z0-9._${}-]+)/gi)) {
+        const seg = m[1];
+        // A variable in the plugin position is how this defect came back last time:
+        // $HOME/.claude/skills/${DEP}/... defeated a literal-name pattern entirely.
+        if (/[${}]/.test(seg)) offenders.push(`fence #${i + 1}: variable plugin name "${seg}"`);
+        else if (seg !== OWN_PLUGIN) offenders.push(`fence #${i + 1}: ${seg}`);
+      }
+    });
+    assert.deepEqual(offenders, [], "resolve sibling plugins via resolve_dep.sh");
+  });
+
+  it("no fence redirects into a file before checking the script exists", () => {
+    // `> "$OUT.json"` creates and truncates before the command runs, so an unguarded
+    // invocation leaves a 0-byte file that reads as a written record.
+    const offenders = [];
+    allBashFences().forEach((f, i) => {
+      const lines = f.code.split("\n");
+      lines.forEach((line, n) => {
+        // Not [^>]* — a placeholder like --project=<slug> contains '>' and would end
+        // the match before the real redirect.
+        const m = line.match(/^\s*(?:python3|node)\s+"\$(\w+)"/);
+        if (!m) return;
+        if (!/>\s*"?\$\w+/.test(line)) return; // only invocations that redirect
+        // The guard must be a CONDITIONAL. `[ -f "$SM" ] || SM=...` is a fallback
+        // assignment, not a guard, and counting it as one hid this defect.
+        const guard = new RegExp(`^\\s*(?:if|elif)\\s+.*\\[\\s+-[fn]\\s+"\\$${m[1]}"`);
+        const guarded = lines.slice(Math.max(0, n - 12), n).some((prev) => guard.test(prev));
+        if (!guarded) offenders.push(`fence #${i + 1} line ${n + 1}: ${line.trim().slice(0, 60)}`);
+      });
+    });
+    assert.deepEqual(offenders, [], "guard with [ -f \"$SCRIPT\" ] before redirecting output");
+  });
+});
+
+describe("skill_freshness_audit.py — duplicate installs are surfaced, not swallowed", () => {
+  it("records the copy that lost when the same skill is installed twice", () => {
+    const home = join(TMP, "dupes");
+    for (const mkt of ["aaa", "zzz"]) {
+      const p = join(home, ".claude/plugins/cache", mkt, "alpha/1.0.0/SKILL.md");
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, "---\nname: alpha\ndescription: d\n---\n");
+    }
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const r = spawnSync("python3", [AUDIT, "--json"], { env: { ...process.env, HOME: home }, encoding: "utf-8" });
+    const j = JSON.parse(r.stdout);
+    assert.equal(j.skills.length, 1, "one winning copy is reported");
+    assert.ok(j.shadowed_duplicates.alpha, "the losing copy must be named, not silently dropped");
+    assert.equal(j.shadowed_duplicates.alpha.length, 1);
   });
 });
