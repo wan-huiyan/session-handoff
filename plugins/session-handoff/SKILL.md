@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.18.0
+version: 1.19.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -15,7 +15,7 @@ triggers:
   - "start here document"
 ---
 
-# Session Handoff v1.18 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
+# Session Handoff v1.19 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
 
 Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
@@ -365,6 +365,46 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     - **Multiple live prompts?** Say which is FIRST and why, and mark any whose
       premise the session moved.
 
+    - **Anything in the prompt that is a QUESTION FOR THE OWNER does not belong in
+      the prompt at all** — see step 17b. A next-session prompt is executed by an
+      agent; a decision the owner has to make blocks that agent and rots while it
+      waits.
+
+17b. **Owner decisions go on a tickable page, not into prose — use `promptback`
+     (standing preference, set 2026-08-06).**
+
+    If the session ends with anything only the owner can answer — a shape to
+    approve, options to choose between, a ruling to confirm — **do not leave it as
+    a bulleted list in the handoff and do not ask it in chat alone.** Both make the
+    owner reconstruct structured answers from unstructured reading, usually on a
+    phone, and the answer arrives as prose someone then has to interpret.
+
+    Instead: load `promptback` and put the questions on a page they can tick, with
+    a button that copies their answers back as one pasteable prompt. If the session
+    also produced a `show-and-tell` explainer, the widgets belong IN that page,
+    under each question's own context — not in a second document.
+
+    Three things that make the difference between a page that works and one that
+    wastes the owner's attention:
+
+    - **Question-specific chips, and the exact token decoded beside them.** A bare
+      `[APPROVE]` is ambiguous on a recommendation-shaped question — approve the
+      change, or approve the status quo the report defended? The copied prompt must
+      carry its own "Meaning of ticks" key naming the literal token.
+    - **Every question must still be the owner's to answer when you ship it.**
+      Check what parallel sessions hold before writing the page: a tickable question
+      that someone else already picked up is worse than no question, because it
+      spends attention and produces a decision that collides. If you cannot verify,
+      say so on the page.
+    - **Verify by driving the widgets, not by reading the HTML.** The copied text is
+      assembled at runtime from hand-written attributes; a chip that fails to persist
+      looks perfect on screen. A headless harness beats a browser check that may not
+      be runnable.
+
+    **Then the handoff and the next-session prompt point AT that page** and say the
+    work is blocked on the owner's ticks — rather than restating the questions,
+    which creates two places for the answer to land.
+
     **The one case for skipping (and then SAY so, in the handoff and the summary).**
     A next-session prompt is for carrying *forward-looking work* across a session
     boundary. If the session closed its stream and you would NOT recommend a concrete
@@ -510,6 +550,12 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
       human decides what to update.
     - If the resolver fails, or `BASE` is not a real revision, report the step as **skipped** in
       the summary table — **never as clean**. "Clean" and "never ran" must not look alike.
+    - **A benign SKIPPED is common and is not a defect — say which kind it is.** The
+      lint scans lesson/axiom/feedback files tracked *in the repo*. In a project whose
+      memory lives outside the repo (e.g. `~/.claude/projects/<slug>/memory/`), it
+      correctly reports `SKIPPED — no lessons/axioms/feedback files changed` even
+      after a session writes several memory files. Report that verbatim rather than
+      as "clean" (it did not scan them) or as a failure (nothing is wrong).
     - **Never report a bare "not installed."** That is a claim about install state; all you
       actually know is that a lookup missed. Say "not found" and print the roots tried. This
       skill is usually installed as a *plugin*, and a bare "not installed" has already been
@@ -747,6 +793,57 @@ MD
     - Keep `severity`, `reviewer_persona`, `reviewer_speciality`, `disposition` as the stable keys
       (the cross-session query contract); add free-form fields freely.
 
+24e. **Improve the skills you USED this session — the ritual, not just the audit.**
+
+    Step 24b checks whether a skill's `last_verified` has gone stale. This is the
+    other half and it is the one that compounds: **a skill you just executed end to
+    end is a skill you now have evidence about**, and that evidence evaporates when
+    the session closes. Standing instruction from the owner, 2026-08-07: *"please
+    update any skills you used in this session that you feel like needs an improve
+    based on what you learned."*
+
+    For each skill invoked this session, ask the three questions that produce real
+    edits rather than nervous ones:
+
+    - **Did a step mislead, or read as clean when it had not run?** That is the
+      highest-value fix, because it is invisible from inside the artifacts.
+    - **Did you have to work something out that the skill could have told you?**
+      A trap you hit, a resolution order you had to discover, a wrong default.
+    - **Did a step fire and produce nothing useful?** Say so in the skill, so the
+      next session does not read a benign SKIPPED as a defect.
+
+    **Do NOT rewrite a skill because the session merely went well.** No edit is the
+    correct outcome most of the time; a skill that grows a paragraph per session
+    becomes unreadable, and unreadable is how steps get silently dropped.
+
+    **THE TRAP, and it cost this step its own first attempt: EDIT THE SOURCE, BUT
+    DIFF THE CACHE AGAINST IT FIRST — THE CACHE CAN BE AHEAD.** A skill you run
+    lives at `~/.claude/plugins/cache/<marketplace>/<skill>/<version>/SKILL.md`,
+    which is a *copy*. Its source repo is named in the sibling
+    `.claude-plugin/plugin.json` under `repository`. On 2026-08-07 the cache copy of
+    THIS skill was **53 lines longer** than the same version in its source repo, and
+    the extra 53 lines were an entire step recording a preference the owner had set
+    — present in no commit on any branch. Both copies declared `1.18.0`. Publishing
+    an edit made against the source would have deleted it, silently.
+
+    So the order is:
+
+    ```bash
+    CACHE=~/.claude/plugins/cache/<marketplace>/<skill>/<version>/SKILL.md
+    SRC=<source-repo>/plugins/<skill>/SKILL.md          # `repository` in plugin.json
+    diff "$SRC" "$CACHE"        # MUST be empty before you edit either one
+    ```
+
+    If it is not empty, **reconcile before improving** — rescue whatever the cache
+    holds into the source as its own commit, so the rescue is reviewable separately
+    from your change. Then edit the source, and re-sync the cache afterwards so the
+    two agree and the next session's diff is clean. This is
+    `the-artefact-may-not-be-the-one-you-built` at the skill layer: the remedy for
+    staleness is exactly where staleness gets created.
+
+    Report each skill edited in the summary table with the version bump, or
+    "no change — nothing learned that generalises".
+
 25. **THE TWO CLOSING CHECKS — run them before you say the handoff is done.**
 
     Both exist because a user had to ask for them. On 2026-08-05 a session
@@ -767,7 +864,23 @@ MD
     ```
 
     Then read the tracker/ledger back and assert **every one of those numbers
-    appears on some card**. A PR that merged after its card was written is
+    appears on some card**.
+
+    **Two things this check reliably turns up, both seen on 2026-08-07.**
+
+    - **A PR belonging to a session that has already wrapped.** #840 merged nine
+      minutes after its owning session left the running board, and that session's
+      card carried seven of its eight PRs. Nobody was coming back. Before adding the
+      chip, confirm which card owns it: check whether the PR added a session card of
+      its own (`git show <sha> -- <ledger> | grep '"id": "s-'`), and whether it
+      closes a task already listed on an existing card. Attribute on that evidence,
+      not on the date.
+    - **The fix needs its own chip — TERMINATE THE CHAIN IN ONE PR.** A PR that adds
+      a missing chip immediately becomes a merged PR with no chip, and re-running the
+      enumeration finds it. Do not iterate: open the PR, read its number, and add
+      **both** the number you were fixing and the PR's own, in that same PR, before
+      merging. The repo convention that makes this legible is a title of the form
+      *"The chip chain terminates here — #842 and this PR"*. A PR that merged after its card was written is
     invisible to that card by construction — this enumeration is the only thing
     that sees it. Add the missing numbers, and if a card's own PR is still open,
     leave `prs_none_reason` and come back.
@@ -986,6 +1099,7 @@ the session didn't touch — don't fabricate entries.
 | `memory/sessions_archive.md` | Updated — bucket footprint noted |
 | `MEMORY.md` index | Updated |
 | **Session usage record (step 24c)** | **REQUIRED — `~/.claude/usage-tracking/<date>_<sid8>_<project>.{json,md}` written (cost $X, N subagents) or explicit "skipped: <reason>"** |
+| **Skills improved (step 24e)** | Per skill invoked: version bump + what changed, or "no change — nothing learned that generalises". If a cache/source diff was non-empty, say so and how it was reconciled |
 | **Doc-freshness reverse-lint (step 24)** | **REQUIRED and NOT blankable — one of: "clean (N files scanned)" with N ≥ 1 / "N candidates surfaced in handoff doc" / "skipped: `<reason>`". "Clean" asserts the lint RAN and found nothing; if the resolver missed, or BASE was not a revision, or zero files were scanned, it is **skipped**, not clean** |
 | PR | `#N` — merged / open for review. **If the tracker card was written before the PR existed, say the chip is still owed and go back for it once it merges** |
 | **PR-to-card enumeration (step 25a)** | **REQUIRED — "N PRs merged this session, all N on a card" with the numbers, or the ones you went back and added. Never "the chips look right"** |
@@ -1099,6 +1213,19 @@ Decision supersession example (from consolidated plan):
 1. **Should we add WebSocket support?** — OPEN, blocked on load testing results
 2. ~~**Defer rate limiting?**~~ RESOLVED (Session 8). Implemented in PR #22 after abuse incident.
 3. ~~**localStorage for tokens?**~~ SUPERSEDED (Session 5 reversed Session 3). httpOnly cookies chosen for XSS protection.
+```
+
+**When any queue entry is the OWNER's rather than a future session's, the entry
+points at the tickable page instead of restating the question** (step 17b):
+
+```markdown
+## Decision Queue
+
+1. **Four shape decisions — waiting on the owner's ticks.**
+   `docs/deliverables/<report>.html` — tick on the page, hit "Copy my decisions as
+   a prompt", paste the result back. The page carries the case for and against each
+   one; do not re-ask them here, or the answer lands in two places.
+2. **Should we add WebSocket support?** — OPEN, a future session's to settle.
 ```
 
 ## Composability
