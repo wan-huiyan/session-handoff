@@ -10,6 +10,14 @@
 # Override in a genuine emergency:
 #   git push --no-verify
 
+# Git exports GIT_DIR, GIT_INDEX_FILE and friends into every hook, and `cwd` does not
+# override them. The suite spawns git inside fixture repos; inheriting these makes those
+# fixtures write into THIS repo. Observed 2026-08-07: a green push left core.bare=true,
+# a fixture identity and a fixture commit on the pushed branch ref, and an empty index.
+# The tests scrub GIT_* themselves now; this is the second layer, for anything they spawn.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+      GIT_COMMON_DIR GIT_PREFIX GIT_QUARANTINE_PATH GIT_ALTERNATE_OBJECT_DIRECTORIES
+
 echo "pre-push: running test suite…"
 if ! npm test; then
   echo ""
