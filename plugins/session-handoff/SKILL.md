@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.20.0
+version: 1.21.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -15,7 +15,7 @@ triggers:
   - "start here document"
 ---
 
-# Session Handoff v1.20 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
+# Session Handoff v1.21 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
 
 Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
@@ -936,6 +936,58 @@ MD
     If the answer to the user's question would be *"yes, but they should also
     read X"*, then **X belongs in the prompt** and the answer is currently no.
 
+25c. **VERIFY YOUR OWN WORK STILL EXISTS ON `main` — after the last sibling merge, not when you wrote it.**
+
+    Steps 25a/25b check that the *record* is complete. This checks the *work is
+    still there*, and it is a different question with a different answer. **A
+    merged, green PR is not evidence your work survived it.**
+
+    On 2026-08-07 a PR built with a stale tree (its parent WAS current `main`, so
+    every "am I behind?" check passed) deleted **59 files and 5,081 lines** already
+    on `main` — source, tests, analysis pages, prompts and hand-maintained ledger
+    entries belonging to **four** sessions. No conflict, PR green, the project's own
+    validator passed, the tracker still rendered. One session declared its wrap-up
+    complete and reported "all parts updated" **while four of its files and six of
+    its ledger entries had already been deleted**, and did not find out for 3½ hours.
+
+    **Why no gate catches it:** a deletion is a valid state of a file. A validator
+    reads what is there and cannot know what should be. So this must be an explicit
+    step, and it must run **last** — after the final merge of the session, because
+    anything merging after you re-checks nothing.
+
+    Three passes, in order — each catches what the previous cannot:
+
+    ```bash
+    git fetch origin main
+
+    # 1. FILES exist
+    for f in <every file you created or edited>; do
+      git cat-file -e origin/main:"$f" 2>/dev/null && echo "OK   $f" || echo "GONE $f"
+    done
+
+    # 2. CONTENT survived — a file can exist and be rolled back
+    git show origin/main:<file> | grep -c "<a distinctive marker of your change>"
+
+    # 3. LEDGER TEXT, not just ids — parse the ledger at origin/main and at the
+    #    commit your PR merged as, and diff story/detail/settled per object
+    ```
+
+    **Pass 3 is the one people skip and it is where the silent damage lives.** A
+    task can survive by `id` while its `detail` is reverted to pre-session wording
+    byte for byte. No id-presence check, and no validator, sees that.
+
+    **If something is missing: splice it back from the last commit where it was
+    intact — never `git revert` the offending PR.** Its own content is usually
+    legitimate work, and reverting it destroys everything merged since: the same
+    failure aimed the other way.
+
+    **Then tell the other sessions.** Losses are per-session and invisible to
+    everyone else; the ones belonging to a session that has already wrapped are
+    found by nobody. Send a short broadcast with a copy-pasteable `git cat-file -e`
+    loop and the three passes above. See `agent-traffic-control`'s
+    `pr-from-stale-branch-silently-reverts-newer-main-files` for the detection
+    (`git diff --diff-filter=D`) that prevents it at the other end.
+
 26. **Final confirmation** to user: list all artifacts produced, grouped by bucket
 
 26a. **Emit the next-session prompt's PATH as a copy-pasteable block — not as prose.**
@@ -1134,6 +1186,7 @@ the session didn't touch — don't fabricate entries.
 | **Doc-freshness reverse-lint (step 24)** | **REQUIRED and NOT blankable — one of: "clean (N files scanned)" with N ≥ 1 / "N candidates surfaced in handoff doc" / "skipped: `<reason>`". "Clean" asserts the lint RAN and found nothing; if the resolver missed, or BASE was not a revision, or zero files were scanned, it is **skipped**, not clean** |
 | PR | `#N` — merged / open for review. **If the tracker card was written before the PR existed, say the chip is still owed and go back for it once it merges** |
 | **PR-to-card enumeration (step 25a)** | **REQUIRED — "N PRs merged this session, all N on a card" with the numbers, or the ones you went back and added. Never "the chips look right"** |
+| **Own-work survival check (step 25c)** | **REQUIRED and NOT blankable — "N files + M ledger entries re-verified present on `origin/main` after the last merge", naming what you re-checked. "The PR merged green" is NOT this check** |
 | **Prompt cold-start check (step 25b)** | **REQUIRED — "reads standalone: context section + verified paths + owner-only section", or "no prompt: <reason>"** |
 | Git status | All committed and pushed |
 
