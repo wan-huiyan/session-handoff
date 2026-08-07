@@ -365,6 +365,46 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     - **Multiple live prompts?** Say which is FIRST and why, and mark any whose
       premise the session moved.
 
+    - **Anything in the prompt that is a QUESTION FOR THE OWNER does not belong in
+      the prompt at all** — see step 17b. A next-session prompt is executed by an
+      agent; a decision the owner has to make blocks that agent and rots while it
+      waits.
+
+17b. **Owner decisions go on a tickable page, not into prose — use `promptback`
+     (standing preference, set 2026-08-06).**
+
+    If the session ends with anything only the owner can answer — a shape to
+    approve, options to choose between, a ruling to confirm — **do not leave it as
+    a bulleted list in the handoff and do not ask it in chat alone.** Both make the
+    owner reconstruct structured answers from unstructured reading, usually on a
+    phone, and the answer arrives as prose someone then has to interpret.
+
+    Instead: load `promptback` and put the questions on a page they can tick, with
+    a button that copies their answers back as one pasteable prompt. If the session
+    also produced a `show-and-tell` explainer, the widgets belong IN that page,
+    under each question's own context — not in a second document.
+
+    Three things that make the difference between a page that works and one that
+    wastes the owner's attention:
+
+    - **Question-specific chips, and the exact token decoded beside them.** A bare
+      `[APPROVE]` is ambiguous on a recommendation-shaped question — approve the
+      change, or approve the status quo the report defended? The copied prompt must
+      carry its own "Meaning of ticks" key naming the literal token.
+    - **Every question must still be the owner's to answer when you ship it.**
+      Check what parallel sessions hold before writing the page: a tickable question
+      that someone else already picked up is worse than no question, because it
+      spends attention and produces a decision that collides. If you cannot verify,
+      say so on the page.
+    - **Verify by driving the widgets, not by reading the HTML.** The copied text is
+      assembled at runtime from hand-written attributes; a chip that fails to persist
+      looks perfect on screen. A headless harness beats a browser check that may not
+      be runnable.
+
+    **Then the handoff and the next-session prompt point AT that page** and say the
+    work is blocked on the owner's ticks — rather than restating the questions,
+    which creates two places for the answer to land.
+
     **The one case for skipping (and then SAY so, in the handoff and the summary).**
     A next-session prompt is for carrying *forward-looking work* across a session
     boundary. If the session closed its stream and you would NOT recommend a concrete
@@ -1099,6 +1139,19 @@ Decision supersession example (from consolidated plan):
 1. **Should we add WebSocket support?** — OPEN, blocked on load testing results
 2. ~~**Defer rate limiting?**~~ RESOLVED (Session 8). Implemented in PR #22 after abuse incident.
 3. ~~**localStorage for tokens?**~~ SUPERSEDED (Session 5 reversed Session 3). httpOnly cookies chosen for XSS protection.
+```
+
+**When any queue entry is the OWNER's rather than a future session's, the entry
+points at the tickable page instead of restating the question** (step 17b):
+
+```markdown
+## Decision Queue
+
+1. **Four shape decisions — waiting on the owner's ticks.**
+   `docs/deliverables/<report>.html` — tick on the page, hit "Copy my decisions as
+   a prompt", paste the result back. The page carries the case for and against each
+   one; do not re-ask them here, or the answer lands in two places.
+2. **Should we add WebSocket support?** — OPEN, a future session's to settle.
 ```
 
 ## Composability
