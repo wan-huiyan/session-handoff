@@ -644,12 +644,13 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     **So when the SKILL.md you edited is a plugin skill, verify it directly instead.** Two
     things, neither of which this audit can tell you:
     - **The version bumped everywhere that plugin's own repo records it.** Do not trust a
-      remembered list — `grep -rn '"version"\|^version:' ` the repo and read the manifest
+      remembered list — `grep -rn '"version"\|^version:'` the repo and read its manifest
       test. In THIS repo it is five places: `plugins/<skill>/SKILL.md` frontmatter,
       `plugins/<skill>/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
       `package.json`, and the newest `## Version History` entry in `README.md`.
-      `tests/manifest-consistency.test.mjs` enforces all five; another plugin in this
-      ecosystem tracked four and missed two for several releases.
+      `tests/manifest-consistency.test.mjs` enforces all five — the README entry is the
+      one that gets forgotten, and it grew its own check because bumping the manifests
+      without the README reads to a user as "that fix isn't in my version".
     - **That repo's own gates ran** — for this one, `npm test` (also enforced by the
       `.githooks/pre-push` hook and the `test-gate` status check).
 
@@ -687,7 +688,9 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     CCTIME_FORK="$HOME/.claude/tools/cctime-fork/dist/index.js"
 
     # Keep the pre-refresh record so step 24d's merged fields survive this overwrite.
-    [ -f "$OUT.json" ] && cp "$OUT.json" "$OUT.json.prev"
+    # `-s`, not `-f`: a 0-byte record from a failed earlier run must not replace a good
+    # .prev, which is what would then be carried forward.
+    [ -s "$OUT.json" ] && cp "$OUT.json" "$OUT.json.prev"
 
     if [ -f "$CCTIME_FORK" ]; then
       node "$CCTIME_FORK" --session "$SID" --json > "$OUT.json"   # canonical record

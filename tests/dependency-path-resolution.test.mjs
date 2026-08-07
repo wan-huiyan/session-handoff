@@ -40,6 +40,22 @@ const skillMd = existsSync(SKILL_MD_PATH) ? readFileSync(SKILL_MD_PATH, "utf-8")
 // references to OTHER plugins through that root are the bug.
 const OWN_PLUGIN = "session-handoff";
 
+// Spawn git inside a FIXTURE repo, with git's own environment scrubbed.
+//
+// `cwd` does not override an inherited GIT_DIR. Git exports GIT_DIR, GIT_INDEX_FILE and
+// friends into hook processes, so `npm test` run from .githooks/pre-push handed them to
+// these fixtures: their `git init` / `config` / `commit` wrote into the REAL repo.
+// Observed 2026-08-07 on a push from a worktree — core.bare=true, user.name=t and
+// user.email=t@e.st in .git/config, the pushed branch ref moved to a fixture commit
+// ("remove lessons"), and an emptied index, so the next `git status` answered
+// "fatal: this operation must be run in a work tree". The push had succeeded and the
+// tests were green; nothing reported the damage.
+function gitIn(repo) {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (k.startsWith("GIT_")) delete env[k];
+  return (...a) => spawnSync("git", a, { cwd: repo, env, encoding: "utf-8" });
+}
+
 let TMP;
 before(() => { TMP = mkdtempSync(join(tmpdir(), "dep-resolution-")); });
 after(() => { if (TMP) rmSync(TMP, { recursive: true, force: true }); });
@@ -373,7 +389,7 @@ describe("SKILL.md step 24 fence — executed, not just parsed", () => {
     // A real git repo with a lessons.md edit, so the scan has something to find.
     const repo = join(TMP, "fence-repo");
     mkdirSync(repo, { recursive: true });
-    const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf-8" });
+    const git = gitIn(repo);
     git("init", "-q");
     git("config", "user.email", "t@e.st");
     git("config", "user.name", "t");
@@ -533,7 +549,7 @@ describe("skip reasons are specific, not just present", () => {
     // FILES is non-empty (git listed it) but the file is gone by the time we read it.
     const repo = join(TMP, "vanished-repo");
     mkdirSync(repo, { recursive: true });
-    const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf-8" });
+    const git = gitIn(repo);
     git("init", "-q"); git("config", "user.email", "t@e.st"); git("config", "user.name", "t");
     writeFileSync(join(repo, "lessons.md"), "# l\n");
     git("add", "-A"); git("commit", "-qm", "add lessons");
