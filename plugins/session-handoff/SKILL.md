@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.19.0
+version: 1.20.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -15,7 +15,7 @@ triggers:
   - "start here document"
 ---
 
-# Session Handoff v1.19 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
+# Session Handoff v1.20 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
 
 Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
@@ -124,6 +124,19 @@ handoff on missing tooling. Say "not found" (what you observed), not "not instal
 positives (e.g., a git-commit-hash table with 3-letter codes) cost 30s of
 human ack to bypass; false negatives cost a fabricated label shipping to a
 client. The asymmetry is by design.
+
+**But keep the escape hatch RARE, or it stops meaning anything.** A frontmatter
+skip waives the whole file, so a document that reaches for it to clear one
+nuisance table also waives the real code legend eight sections down. That is
+why §7's own severity column — `P0`/`P1`/`P2`/`P3`, `HIGH`/`MEDIUM`/`LOW`,
+`SEV1` — is **exempt in the scanner** rather than left to the hatch: those are
+grades the author assigned to their own findings, so there is no external
+system to fabricate against, the row's description IS the claim, and the
+disposition column already cites where it was fixed. Before this exemption the
+skill's own prescribed handoff shape blocked every time (2026-08-07), which
+taught authors to skip the file by reflex. **If you find yourself using the
+hatch routinely, the pattern belongs in the scanner — say so rather than
+normalising the waiver.**
 
 **Run the same scanner against any next-session prompts you write in
 Phase 3** (`session_N+1_prompt.md`, parallel prompts) — the receiving
@@ -252,6 +265,24 @@ bucket output rather than duplicating its content.
        passed the validator, because a validator can only see that the field is
        populated. **Only step 25's enumeration catches it** — the card cannot
        know about a PR that merged after it.
+
+       **AND THE TERMINATING CHIP: NEVER PREDICT YOUR OWN PR NUMBER — CREATE,
+       READ, THEN AMEND.** Chasing the last chip needs a final PR that names
+       both its predecessor and *itself*, or the chain never ends. That tempts
+       you to write the number before the PR exists. **It will be wrong**: on
+       2026-08-07 a session wrote `846` from the last number it had seen and
+       GitHub allocated **849**, three others having opened in between. The
+       order that works is:
+
+           git commit … && git push
+           gh pr create …            # read the number it prints
+           # edit the chip to that number
+           git commit --amend && git push --force-with-lease
+
+       A guessed chip is the worst kind of wrong here, because it is *plausible*
+       — it points at a real, recently-merged pull request belonging to somebody
+       else's work, so nothing looks broken and the validator passes. Read the
+       number; do not derive it.
     2. **Every figure you paste into a tracker is a COPY, and a parallel session
        can rot it inside an hour.** Rebasing resolves the text conflict and tells
        you nothing about the values. After any rebase onto someone else's work,

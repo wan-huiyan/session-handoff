@@ -45,6 +45,20 @@ CODE_CELL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,23}$")
 # priority columns), not status codes. HTTP codes (3 digits) still match.
 # Pure numeric ranges ("1-4", "19-25") are step/line ranges, not codes.
 ORDINAL_RE = re.compile(r"^(\d{1,2}|\d+[-–]\d+)$")
+# Severity grades the AUTHOR assigned to their own findings — P0/P1/P2/P3,
+# SEV1, HIGH/MEDIUM/LOW. These are not codes from an external system, so
+# there is nothing to fabricate and nothing to verify against: the row's own
+# description IS the claim, and the disposition column cites where it was
+# fixed. Exempted because the skill's OWN handoff §7 template prescribes
+# exactly this column, so without it every review-findings table blocks and
+# the author reaches for `label-audit-skipped:` — which then also waives the
+# real code legends further down the same file. A narrow exemption keeps the
+# escape hatch rare enough to stay meaningful.
+SEVERITY_RE = re.compile(
+    r"^(P[0-9]|S[0-9]|SEV[0-9]|CRITICAL|BLOCKER|HIGH|MEDIUM|LOW|INFO|"
+    r"MAJOR|MINOR|TRIVIAL|NIT)$",
+    re.IGNORECASE,
+)
 
 # Header words that suggest a code -> label legend
 HEADER_HINTS = re.compile(
@@ -83,6 +97,8 @@ def is_code_cell(cell):
     if not CODE_CELL_RE.match(stripped):
         return False
     if ORDINAL_RE.match(stripped):
+        return False
+    if SEVERITY_RE.match(stripped):
         return False
     # Require some "code" signal: uppercase, digit, underscore/dot/dash,
     # or explicit backticks — a plain lowercase word ("yes", "done") is prose.
