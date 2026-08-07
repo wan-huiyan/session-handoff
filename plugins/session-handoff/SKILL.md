@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.22.0
+version: 1.23.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -1078,6 +1078,56 @@ MD
     loop and the three passes above. See `agent-traffic-control`'s
     `pr-from-stale-branch-silently-reverts-newer-main-files` for the detection
     (`git diff --diff-filter=D`) that prevents it at the other end.
+
+25d. **IF THE REPO HAS A PROMPT INDEX, RECONCILE THE ROW AGAINST THE PAGE — the row
+     is what gets read first, and it rots on a different clock.**
+
+    Step 26a makes the next prompt *reachable*. This makes it *true*. Many repos keep
+    a one-row-per-prompt index (`docs/handoffs/next_session_prompt.md` or similar)
+    whose rows carry a summary and a status. **A row and the page it links to are two
+    copies of the same claim, maintained by different sessions at different times, and
+    the row is the one a fresh session reads first.** Nothing makes them agree.
+
+    Measured on 2026-08-07, both rows on the same index, wrong in **opposite**
+    directions while both prompt pages were current:
+
+    | row said | reality | what it cost a reader |
+    |---|---|---|
+    | "what is left is four files and five ledger entries, verified absent from `main`" | all four present; the page's own foot said *"the file restoration is finished"* | **advertised finished work as the remaining work**, so the actual remainder — a content audit — went unadvertised |
+    | "expect `main` to be red for reasons of its own (#839)" | #839 closed, `main` measured green | **pre-authorised the reader to ignore red**, which is how a real failure gets waved through |
+
+    The first is the ordinary direction. **The second is the dangerous one**, because a
+    stale "expect it to be broken" does not merely misinform — it disables a check.
+    Treat any row that lowers a future reader's guard as load-bearing.
+
+    Three checks, cheap:
+
+    ```bash
+    # 1. Does the row's headline claim still hold? Re-derive it, don't re-read it.
+    #    "four files are missing" -> list them at origin/main
+    #    "main is red"            -> run the suite, or check the issue is still open
+
+    # 2. Does the row AGREE with its own page? A page corrected at its foot while the
+    #    row kept the superseded summary is the normal failure, not a rare one.
+    grep -n "<the row's key figure>" <the page it links to>
+
+    # 3. Grep the FIGURE across the repo, not just the row you were looking at.
+    #    The same sentence is usually pasted into a ledger entry as well.
+    grep -rn "<the stale phrase>" docs/ <ledger file>
+    ```
+
+    **And when you close an item, the row is part of closing it.** A row still marked
+    live for a merged PR sends the next session to a branch that no longer exists —
+    the same shape as an issue telling its reader to extend a file that has since been
+    deleted. If your session finished something the index advertises, fix the row in
+    the same PR, and say what is left instead of deleting the row.
+
+    **Structural version of the same defect, worth one look while you are there: is
+    the page's remaining work at the TOP?** A prompt that grows by appending dated
+    corrections ends up as a long finished job with the live work in a coda after the
+    archive. A reader working top-down re-runs the completed part. If that has
+    happened, lead with what is left and demote the finished half to an archive
+    section, keeping only the warnings that earned their place.
 
 26. **Final confirmation** to user: list all artifacts produced, grouped by bucket
 
