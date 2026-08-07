@@ -75,6 +75,37 @@ describe("bundled scripts", () => {
       assert.match(res.stdout, /CLEAN/);
     });
 
+    it("exempts self-assigned severity grades but still blocks real code legends", () => {
+      // Regression: before this exemption, the skill's OWN §7 review-findings
+      // template blocked every time, which taught authors to reach for the
+      // frontmatter hatch — and that hatch waives the WHOLE file, including
+      // real legends further down. So the fixture carries both, and the two
+      // assertions below are the point: the severity rows are silent, the
+      // Salesforce row is not.
+      const res = runPy("label_audit.py", [
+        resolve(FIXTURES, "label_audit_severity.md"),
+      ]);
+      assert.equal(res.status, 1, `expected exit 1 (stdout: ${res.stdout})`);
+      // The real code legend still blocks.
+      assert.match(res.stdout, /Accepted Fully/, "a real code legend must still block");
+      // None of the severity rows may be reported.
+      for (const finding of [
+        /ungated funnel/,
+        /monkeypatch teardown/,
+        /one-directional/,
+        /cookie helper/,
+        /Token refresh races/,
+        /leak the auth provider/,
+        /log prefixes/,
+      ]) {
+        assert.doesNotMatch(
+          res.stdout,
+          finding,
+          `severity-graded row must be exempt: ${finding}`
+        );
+      }
+    });
+
     it("honors the frontmatter escape hatch (exit 2)", () => {
       const res = runPy("label_audit.py", [
         resolve(FIXTURES, "label_audit_skipped.md"),
