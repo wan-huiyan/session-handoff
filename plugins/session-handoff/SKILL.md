@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.21.0
+version: 1.22.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -626,8 +626,57 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     "skill_freshness_audit: not found — tried &lt;both paths&gt;" and continue, and report the step as
     **skipped** rather than clean. See the naming rule in step 24: never a bare "not installed".
 
+    **WHAT THIS AUDIT DOES NOT LOOK AT: the copy you edited.** It scans the two roots a
+    skill is INSTALLED under — `~/.claude/skills/` and `~/.claude/plugins/cache/` — and
+    nothing else. A plugin skill's SOURCE repo is a third place: a marketplace checkout
+    under `~/.claude/plugins/marketplaces/<marketplace>/`, or a clone anywhere on disk.
+    That is the copy **step 24e tells you to edit**, and the audit never opens it. Measured
+    2026-08-07 on the author's machine: the audit reported 247 skills and named
+    `session-handoff` from
+    `~/.claude/plugins/cache/wan-huiyan-session-handoff/session-handoff/1.20.0/SKILL.md`,
+    zero results from any `marketplaces/` path, while the source repo being edited was at
+    **1.21.0**. It passed, on the wrong file, one version behind. Two more reasons the pass
+    means less than it looks: the trigger is `git diff … | grep SKILL.md` in the CURRENT
+    repo, so editing a plugin skill in a *separate* repo does not fire the audit at all;
+    and the cache copy's age comes from `mtime`, which is the install time, so it reads
+    `0d` whatever the file says.
+
+    **So when the SKILL.md you edited is a plugin skill, verify it directly instead.** Two
+    things, neither of which this audit can tell you:
+    - **The version bumped everywhere that plugin's own repo records it.** Do not trust a
+      remembered list — `grep -rn '"version"\|^version:' ` the repo and read the manifest
+      test. In THIS repo it is five places: `plugins/<skill>/SKILL.md` frontmatter,
+      `plugins/<skill>/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+      `package.json`, and the newest `## Version History` entry in `README.md`.
+      `tests/manifest-consistency.test.mjs` enforces all five; another plugin in this
+      ecosystem tracked four and missed two for several releases.
+    - **That repo's own gates ran** — for this one, `npm test` (also enforced by the
+      `.githooks/pre-push` hook and the `test-gate` status check).
+
+    **The general form, and it is the more useful half: an audit that reports "all clean"
+    without naming what it examined has told you nothing.** Prefer a check that PRINTS ITS
+    SCOPE, then compare that scope against the path of the thing you actually changed.
+    `skill_freshness_audit.py --human` does print its roots on its first line — read that
+    line rather than the "All skills fresh." at the bottom. This is the same failure this
+    skill already carries twice — step 24's reverse-lint reported clean while scanning zero
+    files (v1.17.0), and this audit reported nothing while scanning one root of two
+    (v1.17.0). Green over an empty set is not evidence.
+
 24c. **Persist session usage metrics** — archive this session's cctime output as a structured
     record under `~/.claude/usage-tracking/` for cross-session analytics (Karpathy-style usage tracking).
+
+    **THIS STEP OVERWRITES `$OUT.json` AND `$OUT.md`, AND STEP 24d'S WORK LIVES IN BOTH.**
+    Every write below is `>`, not `>>`, so a refresh replaces the file wholesale and nothing
+    warns you. The record afterwards looks complete — tokens, models, transcript counts all
+    present — it simply has no `review_findings` in it, and the cross-session roll-up those
+    findings exist for is gone. This is not a hypothetical re-run: the sanity-check further
+    down this step tells you to "redirect its output over the fork's files", and the numbers
+    keep moving as a session continues, so refreshing near the end is the normal thing to do.
+    Observed 2026-08-07 — a session refreshed its record to pick up later subagents and wiped
+    **fifteen merged review findings**, caught only by listing the JSON's top-level keys
+    afterwards. **Order: 24c first, then 24d, never the reverse. If you re-run 24c after 24d,
+    24d must be re-applied.** The fence carries the JSON half across automatically; the
+    Markdown half you re-append by hand (see below).
 
     **Canonical generator is the cctime FORK, invoked BY ABSOLUTE PATH** (not the bare
     `cctime` name — see the name-collision warning below):
@@ -636,6 +685,9 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     SID="${CLAUDE_CODE_SESSION_ID:?session id required}"
     OUT="$HOME/.claude/usage-tracking/$(date -u +%Y-%m-%d)_${SID:0:8}_<project-short>"
     CCTIME_FORK="$HOME/.claude/tools/cctime-fork/dist/index.js"
+
+    # Keep the pre-refresh record so step 24d's merged fields survive this overwrite.
+    [ -f "$OUT.json" ] && cp "$OUT.json" "$OUT.json.prev"
 
     if [ -f "$CCTIME_FORK" ]; then
       node "$CCTIME_FORK" --session "$SID" --json > "$OUT.json"   # canonical record
@@ -665,7 +717,31 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
              "No usage record written; report the step as skipped."
       fi
     fi
+
+    # Carry 24d's fields across the overwrite, then PRINT THE TOP-LEVEL KEYS. The print
+    # is the verification, not a comment: if a review panel ran this session, that list
+    # MUST contain review_findings and review_summary. If it does not, 24d's merge is
+    # gone — re-apply it before you report the record written.
+    if [ -s "$OUT.json" ]; then
+      python3 - "$OUT.json" <<'PY'
+    import json, os, sys
+    p = sys.argv[1]; prev = p + ".prev"
+    d = json.load(open(p))
+    if os.path.exists(prev) and os.path.getsize(prev):
+        old = json.load(open(prev))
+        d.update({k: old[k] for k in ("review_findings", "review_summary") if k in old})
+        json.dump(d, open(p, "w"), indent=2)
+        os.remove(prev)
+    print("top-level keys:", sorted(d))
+    PY
+    fi
     ```
+
+    **The Markdown companion has no such carry.** 24d appends its findings table to
+    `$OUT.md` with `cat >>`; this step's `>` deletes it and there is nothing to recover it
+    from. After any 24c refresh, re-run 24d's `cat >> "$OUT.md"` block. Then read the two
+    files rather than the exit status — a round trip is the only proof the fields are
+    actually there.
 
     **CRITICAL — invoke the fork by PATH, never the bare `cctime`.** The fork's
     `package.json` keeps the upstream package name `@dioptx/cctime`, so the global
@@ -723,6 +799,9 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     `find <session>/subagents -name 'agent-*.jsonl' | wc -l` (recursive) against it; if transcripts
     exist but subagent spend ≈ 0, re-run the bundled `session_metrics.py` (recursive, produced the correct total)
     and redirect its output over the fork's files so the canonical record is the complete one.
+    **That redirect is the overwrite warned about at the top of this step** — it destroys any
+    24d merge already in the files, so do it through the same carry-then-print-keys fence, and
+    re-append 24d's Markdown table afterwards.
     **Unit-mismatch variant (2026-07-23, same failure family, non-zero this time):** the fork's
     scalar `enhancedStats.subagent` can be non-zero yet ~2× off the itemized truth (1.07M vs a
     workflow's self-reported 2.44M; `session_metrics.py` itemized subagent output 514k + cache
@@ -782,6 +861,10 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     Merge a `review_findings` array into the auto-written JSON and append a section to the `.md`.
     Pull from the review report's Action Items + `integration_log.jsonl` — do NOT hand-reconstruct.
 
+    **This step runs AFTER 24c, and 24c must not be run again without re-applying it.** 24c
+    writes both files with `>` and will silently replace everything below. If you refresh the
+    metrics for any reason, come back here and re-merge.
+
     ```bash
     # One object per finding the panel RAISED (fixed + documented + rejected).
     python3 - "$OUT.json" <<'PY'
@@ -823,6 +906,11 @@ MD
     - If NO review ran, set `"review_summary": {"panel_ran": false}` (or omit) — never fabricate findings.
     - Keep `severity`, `reviewer_persona`, `reviewer_speciality`, `disposition` as the stable keys
       (the cross-session query contract); add free-form fields freely.
+    - **Verify by reading the file back, after this step and after any 24c re-run** —
+      `python3 -c 'import json,sys; print(sorted(json.load(open(sys.argv[1]))))' "$OUT.json"`.
+      `review_findings` and `review_summary` must both be in the printed list, and
+      `grep -c '^## Review findings' "$OUT.md"` must be 1. The merge script's own
+      "review_findings merged: …" line proves what it wrote, not what is still on disk.
 
 24e. **Improve the skills you USED this session — the ritual, not just the audit.**
 
