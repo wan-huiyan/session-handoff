@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.24.0
+version: 1.25.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -15,7 +15,7 @@ triggers:
   - "start here document"
 ---
 
-# Session Handoff v1.21 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit
+# Session Handoff v1.22 — Bucket-aware + reverse-lint + skill-freshness + issue emission + review-findings audit + show-and-tell
 
 Comprehensive end-of-session knowledge capture with built-in cross-session
 consolidation. Ensures nothing is lost between sessions and produces a single
@@ -1235,19 +1235,50 @@ sessions into a single authoritative plan.
     - Are branch references still valid? (`git branch -a`)
     - Have any deferred items been completed without updating the plan?
 
-### Phase 6: User-facing live-dashboard recap (chat output)
+### Phase 6: User-facing recap — a `show-and-tell` page, then the chat summary
 
 After Phases 0-5 produce the persisted artefacts (handoff doc + buckets + PR),
-deliver a **separate, user-facing recap in chat** that translates the
-shipped work into what the user will actually *see* the next time they open
-the product. This is conversational output, not a file — it's what the user
-reads before they close the session.
+deliver a **separate, user-facing explanation** of what the session actually did.
+This is for the human, not for Claude: handoff docs are written for *a future
+session* (dense, technical, complete), and the person reading needs a different
+register — what changed, why it matters, what they should check themselves.
 
-Why this matters: handoff docs are written for *Claude in a future session*
-(dense, technical, complete). The user reading the chat needs a different
-register — what changed, where they'll notice it, anything they should
-verify themselves. Without this step, the user has to read the handoff doc
-or click through 4-8 PRs to know what changed in their product.
+30a. **Build a `show-and-tell` page — REQUIRED on any session with substantive
+     findings, and it comes BEFORE the chat recap.**
+
+    Standing instruction from the owner, 2026-08-07: *"please make sure for all
+    sessions running in this repo, using show and tell to explain a session's
+    work is always part of the session-handoff ritual."*
+
+    A chat recap scrolls away and cannot be re-read next week; a handoff doc is
+    written in a register the owner has explicitly asked us not to use on him.
+    The `show-and-tell` skill produces the third thing: a self-contained HTML
+    explainer in plain English, built on one everyday metaphor, with the real
+    numbers beside each plain claim, an engineer's-note layer so technical
+    readers are not shortchanged, a foregrounded limits box, and a bundled
+    fact-verifier that checks every claim back against the source documents.
+
+    - **Load the `show-and-tell` skill and follow it** — do not hand-roll a
+      "summary page", which is how the honesty box and the fact-verifier get
+      dropped.
+    - **Commit it to `docs/deliverables/`** (bucket 7) and register it as an
+      artifact in the project tracker, like any other deliverable.
+    - **If the session also ends in owner decisions**, put the `promptback`
+      widgets INSIDE this page under each question's own context (step 17b) —
+      not in a second document.
+    - **Run its fact-verifier before shipping.** A plain-English translation is
+      exactly where a number drifts: the whole point is re-wording, and re-wording
+      is when "9.58 km" quietly becomes "under 10 km" becomes "about 8".
+
+    **Skip only when the session produced nothing a non-specialist would care
+    about** — pure repo hygiene, a one-line revert, tracker reconciliation. Then
+    say so in one line rather than manufacturing a page.
+
+31-35 below are the CHAT recap, which still happens: the page is what the owner
+keeps, the chat is what they read before closing the session. Where the session
+shipped user-visible product changes, keep the chat recap framed as "shipped
+change → what you'll see"; where it shipped findings rather than features, let
+the chat recap be short and point at the page.
 
 31. **Structure the recap as "shipped change → user-visible effect"**, one
     section per merged PR or material change. Skip purely internal work
@@ -1329,6 +1360,7 @@ the session didn't touch — don't fabricate entries.
 | `docs/handoffs/` | `session_N_handoff.md` (always) + the next-session prompt **written or REFRESHED** — naming which, and never just cited (else note "no next-session prompt — stream closed") (+ parallel prompts if any) |
 | **Next-session prompt PATH (step 26a)** | **REQUIRED and NOT blankable — the repo-relative path in its own fenced block, `ls`-verified, so the user can paste it into a fresh session in one action. A prose reference ("the S386 prompt") does NOT satisfy this. If no prompt was written, print the reason in this slot instead.** |
 | `docs/deliverables/` | N new artifacts — or "—" |
+| **`show-and-tell` explainer (step 30a)** | **REQUIRED and NOT blankable on any session with substantive findings — the committed `docs/deliverables/*.html` path, fact-verifier run, registered as a tracker artifact. Or explicit "— (nothing a non-specialist would care about)". A chat recap does NOT satisfy this: it scrolls away, and the handoff doc is written in the register the owner asked us not to use on him** |
 | `docs/plans/future_sessions_plan.md` | Updated / consolidated (if Phase 5) |
 | **Project tracker / ledger (step 14)** | **ALL parts of its own ritual + validator green — or explicit "— (no tracker in this repo)". Name the parts that outlive the wrap-up: PR chip pending merge, successor task filed** |
 | `memory/lessons.md` | N new (total: M) |
@@ -1343,7 +1375,7 @@ the session didn't touch — don't fabricate entries.
 | **Prompt cold-start check (step 25b)** | **REQUIRED — "reads standalone: context section + verified paths + owner-only section", or "no prompt: <reason>"** |
 | Git status | All committed and pushed |
 
-> **Five rows are NOT blankable — the usage record, the next-session prompt PATH, the two closing checks, and the reverse-lint.**
+> **Six rows are NOT blankable — the usage record, the next-session prompt PATH, the two closing checks, the reverse-lint, and the `show-and-tell` explainer.**
 > The reverse-lint row joined them on 2026-08-06: the step had been dead on every plugin-scope
 > install (wrong root) *and* on every install (a literal `HEAD~N` scanned zero files), yet the
 > table only offered "Clean / N candidates" — so a step that never ran was written up as clean.
