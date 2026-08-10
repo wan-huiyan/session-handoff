@@ -1,7 +1,7 @@
 ---
 name: session-handoff
 description: "End-of-session handoff that captures session knowledge, dispatches output across the canonical 7-bucket docs/ taxonomy (decisions/runbooks/analysis/references/reviews/handoffs/deliverables — aligned with memory-hygiene v3.3), triggers a doc-freshness reverse-lint + skill-freshness audit to catch stale normative guidance, emits the future-to-do plan's follow-up items as GitHub issues, updates memory, and prepares next-session prompts. Use when: (1) user says 'wrap up', 'hand over', 'create handoff', 'end of session', 'write handoff', 'session handoff'; (2) non-trivial work session (3+ tasks) is ending; (3) context window is approaching limits; (4) user says 'consolidate', 'what's the current state', 'start here document' after parallel sessions; (5) the session produced artifacts that belong in more than one docs/ bucket (ADR + analysis + runbook + review). Includes cross-session consolidation when 3+ handoffs accumulate and a mandatory reverse-lint verify step against any lessons.md / feedback_*.md touched this session."
-version: 1.23.0
+version: 1.24.0
 triggers:
   - "wrap up"
   - "session handoff"
@@ -495,7 +495,14 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
 20. **Commit all session work** — stage and commit in logical groups:
     - **Code changes first:** feature code, bug fixes, tests (one commit with descriptive message)
     - **Docs second:** handoff doc, next-session prompt, plan updates, lessons (separate commit)
-    - If the session already has multiple commits on a feature branch, add docs as a new commit on the same branch — **unless that branch was already squash-merged.** Check first: `gh pr list --head <branch> --state merged`. If it merged, the branch still carries its pre-squash commits (squash-merge never marks them merged locally), so a docs PR from its HEAD shows the WHOLE feature diff and can conflict with parallel streams that touched the same files after the squash. Instead: commit the docs where you are, then rebuild — `git reset --hard origin/main` + `git cherry-pick <docs-sha>...` onto a fresh docs branch (docs files rarely overlap the feature files, so the picks are clean). Verify with `git diff --stat origin/main..HEAD` that ONLY the docs files remain before pushing.
+    - If the session already has multiple commits on a feature branch, add docs as a new commit on the same branch — **unless that branch was already squash-merged.** Check first: `gh pr list --head <branch> --state merged`. If it merged, the branch still carries its pre-squash commits (squash-merge never marks them merged locally), so a docs PR from its HEAD shows the WHOLE feature diff and can conflict with parallel streams that touched the same files after the squash. Instead: commit the docs where you are, then rebuild — `git reset --hard origin/main` + `git cherry-pick <docs-sha>...` onto a fresh docs branch (docs files rarely overlap the feature files, so the picks are clean). Verify before pushing — **three dots, not two**:
+
+      ```bash
+      git diff --stat origin/main...HEAD                       # only the docs files
+      git diff --diff-filter=D --name-only origin/main...HEAD  # must be empty
+      ```
+
+      `A..B` compares tip to tip, so everything `main` gained after you branched renders as deletions *you* appear to be making; two dots are right only in the instant after the reset and wrong the moment a parallel session merges — which is exactly the situation this step exists for. `A...B` diffs from the fork point and reproduces what GitHub shows on the PR. Run the deletion line even when the stat looks fine: a branch whose *tree* is stale (a `git reset --soft`, or an old worktree committed with `git add -A`) is still a clean fast-forward reporting 0 commits behind, and the push then replaces `main`'s tree wholesale. Measured: one such PR deleted a 322-line client-facing file while describing itself as a copy fix. This is the one command that sees it.
     - If uncommitted work is on `main`, create a feature branch first: `git checkout -b feat/sN-description`
 
 21. **Push and create PR:**
@@ -579,7 +586,8 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
     - ≥1 candidate → add a **"Stale docs to review"** section to `session_N_handoff.md` with
       `file:line` references and the triggering rule. **Never auto-edit** the flagged docs; the
       human decides what to update.
-    - If the resolver fails, or `BASE` is not a real revision, report the step as **skipped** in
+    - If the resolver fails, or `BASE` is not a real revision (or shares no history with
+      `HEAD`), report the step as **skipped** in
       the summary table — **never as clean**. "Clean" and "never ran" must not look alike.
     - **A benign SKIPPED is common and is not a defect — say which kind it is.** The
       lint scans lesson/axiom/feedback files tracked *in the repo*. In a project whose
@@ -601,7 +609,11 @@ skipped: gh unavailable" in the handoff doc — never block the handoff on it.
 
     if ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
       echo "skill-freshness: SKIPPED — BASE '$BASE' is not a revision"
-    elif git diff --name-only "$BASE"..HEAD | grep -qE '(^|/)SKILL\.md$'; then
+    elif ! git merge-base "$BASE" HEAD >/dev/null 2>&1; then
+      # Three dots need a fork point. No shared history means no answer — say so
+      # rather than let an erroring diff read as "no SKILL.md was touched".
+      echo "skill-freshness: SKIPPED — BASE '$BASE' shares no history with HEAD"
+    elif git diff --name-only "$BASE"...HEAD | grep -qE '(^|/)SKILL\.md$'; then
       # Resolve the bundled script — plugin install first, then git-clone install:
       SFA="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/skill_freshness_audit.py}"
       [ -f "$SFA" ] || SFA="$HOME/.claude/skills/session-handoff/scripts/skill_freshness_audit.py"
