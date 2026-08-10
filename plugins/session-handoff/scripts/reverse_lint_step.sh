@@ -59,6 +59,19 @@ if [ -z "$BASE" ] || ! git rev-parse --verify --quiet "$BASE" >/dev/null 2>&1; t
   exit 0
 fi
 
+# BASE resolving is not the same as BASE being on this branch's history. Step 20's
+# rebuild (reset --hard + cherry-pick) destroys that property outright, and nothing
+# here can restore it — so the diff below uses three dots, which asks "what has this
+# branch done since the fork point" instead of "how do these two tips differ". The two
+# forms are identical whenever BASE IS an ancestor, which is the contracted case; where
+# they differ, two dots reports main's own newer files as though this session deleted
+# them. Three dots need a fork point to exist at all, so check for one first rather than
+# let an erroring diff pass for an empty one.
+if ! git merge-base "$BASE" HEAD >/dev/null 2>&1; then
+  echo "reverse-lint: SKIPPED — BASE '$BASE' shares no history with HEAD"
+  exit 0
+fi
+
 # Three sources, because a lessons file written this session may be in any of them:
 #   committed since BASE · modified but not committed · created and never added.
 # The third is the most common case for a brand-new lessons.md, and `git diff` does not
@@ -66,7 +79,7 @@ fi
 # that had the most to check.
 FILES=$(
   {
-    git diff --name-only "$BASE"..HEAD 2>/dev/null
+    git diff --name-only "$BASE"...HEAD 2>/dev/null
     git diff --name-only 2>/dev/null
     git ls-files --others --exclude-standard 2>/dev/null
   } |
