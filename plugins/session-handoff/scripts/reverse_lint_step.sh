@@ -72,14 +72,16 @@ if ! git merge-base "$BASE" HEAD >/dev/null 2>&1; then
   exit 0
 fi
 
-# Three sources, because a lessons file written this session may be in any of them:
-#   committed since BASE · modified but not committed · created and never added.
-# The third is the most common case for a brand-new lessons.md, and `git diff` does not
-# list untracked files — omitting it made this step scan nothing on exactly the session
-# that had the most to check.
+# Four sources, because a lessons file written this session may be in any of them:
+#   committed since BASE · staged but not committed · modified but not staged ·
+#   created and never added.
+# The fourth is the most common case for a brand-new lessons.md, and neither form of
+# `git diff` lists untracked files. The staged form must also be explicit: plain
+# `git diff --name-only` compares the worktree to the index and omits index-only edits.
 FILES=$(
   {
     git diff --name-only "$BASE"...HEAD 2>/dev/null
+    git diff --cached --name-only 2>/dev/null
     git diff --name-only 2>/dev/null
     git ls-files --others --exclude-standard 2>/dev/null
   } |
