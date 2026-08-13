@@ -403,6 +403,27 @@ describe("SKILL.md step 24 fence — executed, not just parsed", () => {
     assert.match(r.out, /reverse-lint: (clean \(1 file|1 candidate)/);
   });
 
+  it("scans a staged-but-uncommitted lessons file", () => {
+    const repo = join(TMP, "fence-staged-repo");
+    mkdirSync(repo, { recursive: true });
+    const git = gitIn(repo);
+    git("init", "-q");
+    git("config", "user.email", "t@e.st");
+    git("config", "user.name", "t");
+    writeFileSync(join(repo, "seed.txt"), "seed\n");
+    git("add", "seed.txt");
+    git("commit", "-qm", "seed");
+    const base = git("rev-parse", "HEAD").stdout.trim();
+
+    writeFileSync(join(repo, "lessons.md"), "# staged lesson\n");
+    git("add", "lessons.md");
+    assert.equal(git("diff", "--cached", "--name-only").stdout.trim(), "lessons.md");
+
+    const r = runFence(pluginOnlyHome("fence-staged-scan"), repo, base);
+    assert.match(r.out, /SENTINEL lessons\.md/, `stub lint never scanned the staged file. out=${r.out} err=${r.err}`);
+    assert.match(r.out, /reverse-lint: clean \(1 file\(s\) scanned\)/);
+  });
+
   it("reports SKIPPED, not clean, when BASE is not a revision", () => {
     const r = runFence(pluginOnlyHome("fence-badbase"), ROOT, "HEAD~N");
     assert.match(r.out, /reverse-lint: SKIPPED/);
